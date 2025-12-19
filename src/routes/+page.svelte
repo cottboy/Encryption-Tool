@@ -371,10 +371,27 @@
               </button>
 
               <button class="icon" aria-label={$t("keys.ui.actions.export")} onclick={() => openExportDialog(e)}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
+                <!--
+                  导出图标（“退出登录”风格）：
+                  - 你希望的语义更接近“从应用/列表中导出到外部”，而不是“下载到本地”。
+                  - 这里采用常见的“门框 + 向右箭头”样式，视觉上类似退出登录。
+                  - 仅更换图标，不改变导出逻辑（仍然弹出导出对话框）。
+                -->
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <!-- 门框/容器 -->
+                  <path d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" />
+                  <!-- 向右“退出”箭头 -->
+                  <polyline points="15 17 20 12 15 7" />
+                  <line x1="20" y1="12" x2="10" y2="12" />
                 </svg>
               </button>
             </td>
