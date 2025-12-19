@@ -1,0 +1,163 @@
+{
+  "app": {
+    "title": "Encryption Tool",
+    "tabs": {
+      "keys": "密钥管理",
+      "text": "文本加密",
+      "files": "文件加密"
+    }
+  },
+  "common": {
+    "notImplemented": "该功能尚未实现",
+    "refresh": "刷新",
+    "create": "创建",
+    "apply": "应用",
+    "remove": "移除",
+    "encrypt": "加密",
+    "decrypt": "解密",
+    "browse": "浏览…",
+    "algorithm": "算法",
+    "key": "密钥",
+    "input": "输入",
+    "output": "输出",
+    "file": "文件",
+    "outputDir": "输出目录",
+    "password": "密码",
+    "selectFromKeystore": "（从密钥库选择）",
+    "none": "暂无",
+    "ok": "确定",
+    "cancel": "取消",
+    "close": "关闭",
+    "loading": "加载中…",
+    "show": "显示",
+    "hide": "隐藏",
+    "name": "名称",
+    "type": "类型",
+    "actions": "操作"
+  },
+  "keys": {
+    "title": "密钥管理",
+    "desc": "在这里管理密钥库：生成、导入、导出密钥，并可选用密码加密密钥库。",
+    "create": {
+      "title": "创建密钥库",
+      "name": "名称",
+      "password": "密码（可选）",
+      "help": "不填写密码将创建明文密钥库。"
+    },
+    "manage": {
+      "select": "选择密钥库",
+      "emptyOption": "（暂无密钥库）",
+      "oldPassword": "旧密码（若已加密）",
+      "newPassword": "新密码（留空表示移除密码）",
+      "help": "修改密码会重新加密/解密整个密钥库文件。",
+      "title": "密钥管理"
+    },
+    "info": {
+      "title": "密钥库信息",
+      "encrypted": "已加密",
+      "notEncrypted": "未加密",
+      "version": "版本",
+      "keyCount": "密钥数量"
+    },
+    "entries": {
+      "title": "密钥条目（预览）",
+      "passwordHelp": "如果密钥库已加密，请在这里填写密码以读取条目列表。",
+      "load": "读取条目",
+      "empty": "当前密钥库还没有任何密钥。",
+      "table": {
+        "id": "ID",
+        "label": "名称",
+        "type": "类型"
+      }
+    },
+    "msg": {
+      "created": "已创建密钥库：{name}",
+      "passwordUpdated": "已更新密钥库密码设置"
+    },
+    "ui": {
+      "lockNow": "立即锁定",
+      "keyListTitle": "密钥列表",
+      "lockTitle": "密钥库加密",
+      "enableLock": "加密密钥库",
+      "disableLock": "取消加密",
+      "enabledUnlocked": "已启用（已解锁）",
+      "enabledLocked": "已启用（未解锁）",
+      "disabled": "未启用",
+      "actions": {
+        "preview": "预览密钥",
+        "export": "导出密钥"
+      },
+      "emptyKeys": "当前还没有密钥。",
+      "emptyHint": "下一步实现“生成/导入”后这里会出现条目。",
+      "status": "状态",
+      "keyCount": "密钥数量",
+      "version": "版本",
+      "newPassword": "新密码",
+      "confirmPassword": "确认新密码",
+      "enableHint": "启用后，下次启动必须输入密码才能使用软件。",
+      "disableHint": "已启用应用锁。移除后，下次启动将不再需要密码。",
+      "opsTitle": "密钥操作",
+      "generateTitle": "生成密钥",
+      "importTitle": "导入密钥",
+      "exportTitle": "导出密钥",
+      "deleteTitle": "删除密钥",
+      "exportFormat": "导出格式",
+      "chooseFile": "选择文件…",
+      "saveFile": "保存…",
+      "confirmDelete": "确定删除该密钥吗？",
+      "selectKeyFirst": "请先在左侧选择一个密钥。",
+      "formats": {
+        "key_b64": "Base64（原始密钥）",
+        "rsa_private_pem": "RSA 私钥 PEM（PKCS8）",
+        "rsa_public_pem": "RSA 公钥 PEM（SPKI）",
+        "x25519_json": "X25519 JSON（私钥+公钥）",
+        "x25519_public_b64": "X25519 公钥 Base64"
+      },
+      "table": {
+        "name": "名称",
+        "type": "类型",
+        "actions": "操作"
+      },
+      "errors": {
+        "passwordMismatch": "两次输入的密码不一致",
+        "passwordRequired": "请输入密码",
+        "nameRequired": "请输入密钥名称"
+      },
+      "msg": {
+        "exported": "已导出到：{path}"
+      },
+      "previewTitle": "预览",
+      "preview": {
+        "algorithm": "算法",
+        "publicPem": "公钥（PEM）",
+        "privatePem": "私钥（PEM）",
+        "publicB64": "公钥（Base64）",
+        "secretB64": "私钥（Base64）",
+        "symmetricKey": "密钥（Base64）"
+      },
+      "importNameLabel": "密钥名称（必填）"
+    }
+  },
+  "text": {
+    "title": "文本加密",
+    "desc": "选择算法与密钥后，对文本进行加密/解密（后续实现）。",
+    "help": {
+      "keyMismatch": "解密时选错密钥必须提示“密钥错误或数据已损坏”。",
+      "algoMatch": "后续会根据算法与密钥类型做匹配校验。"
+    }
+  },
+  "files": {
+    "title": "文件加密",
+    "desc": "支持大文件流式分块加密/解密，输出扩展名为 .encrypted（后续实现）。",
+    "help": {
+      "outputExt": "加密输出文件以 .encrypted 结尾；解密时会还原原始文件名与扩展名。",
+      "progress": "进度条与取消逻辑会在实现流式分块时一起落地。"
+    }
+  },
+  "lock": {
+    "title": "应用已锁定",
+    "subtitle": "已启用密钥库加密。请输入密码解锁后才能使用。",
+    "passwordPlaceholder": "请输入密码",
+    "unlock": "解锁"
+  }
+}

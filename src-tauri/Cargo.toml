@@ -1,0 +1,61 @@
+[package]
+name = "encryption-tool"
+version = "0.1.0"
+description = "Encryption Tool"
+authors = ["you"]
+edition = "2021"
+
+# 更多配置说明：https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# `_lib` 后缀看起来多余，但在 Windows 上可避免与 bin 名冲突。
+name = "encryption_tool_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 核心：负责窗口、命令调用、路径解析等。
+tauri = { version = "2", features = [] }
+
+# 插件：
+# - opener：打开外部链接（模板自带）
+# - dialog：文件选择/保存（用于导入/导出密钥）
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+
+# 序列化：用于命令返回值与密钥库 JSON 文件读写。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# =============
+# 密钥库加密依赖
+# =============
+# KDF：用于将用户密码派生为固定长度主密钥（可选加密密钥库）。
+argon2 = "0.5"
+
+# AEAD：用于对密钥库整体进行认证加密（防篡改）。
+chacha20poly1305 = { version = "0.10", features = ["std"] }
+
+# 随机数：生成 salt/nonce、以及生成密钥/ID。
+rand = "0.8"
+
+# Base64：把二进制字段（salt/nonce/ciphertext/密钥材料）写入 JSON。
+base64 = "0.22"
+
+# 清理敏感数据：尽量减少密码/密钥在内存中的残留。
+zeroize = "1"
+
+# =============
+# 密钥算法依赖
+# =============
+# RSA：生成/导入/导出（PEM/PKCS8）。
+rsa = { version = "0.9", features = ["pem"] }
+
+# X25519：生成密钥对（用于后续混合加密/密钥协商）。
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
+
+
+

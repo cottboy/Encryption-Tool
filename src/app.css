@@ -1,0 +1,156 @@
+/*
+  全局样式：
+  - 目标是“简约、扁平化、偏 macOS 风格”的基础观感。
+  - 重点调整：
+    1) 扩大可用区域：默认最大宽度提升，减少窗口两侧大面积空白。
+    2) 去“卡片堆叠”：尽量用留白 + 细分割线，而不是一层层盒子。
+*/
+
+:root {
+  /* 颜色体系：灰白系，尽量低饱和 */
+  --bg: #f5f5f7;
+  --panel: #ffffff;
+  --text: #111113;
+  --muted: #6b6b73;
+  --border: #e2e2e7;
+  --border-strong: #d0d0d7;
+  --accent: #0a84ff; /* macOS 风格蓝色，克制使用 */
+
+  /* 圆角与间距 */
+  --radius: 10px;
+  --radius-sm: 8px;
+  --gap: 12px;
+  --pad: 18px;
+
+  /* 字体：优先系统字体，保证三平台观感一致 */
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    sans-serif;
+
+  color: var(--text);
+  background: var(--bg);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+/*
+  统一内容宽度：
+  - 桌面端窗口通常很宽，如果限定最大宽度会出现两侧大面积空白。
+  - 这里不再限制 max-width，让内容尽量占满窗口，只保留左右内边距。
+*/
+.container {
+  width: 100%;
+  max-width: none;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+/* 页面标题 */
+.h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 14px 0 10px;
+}
+
+/* 小字辅助说明 */
+.help {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 扁平化分割线：用于替代“卡片盒子” */
+.divider {
+  height: 1px;
+  background: var(--border);
+}
+
+/* 基础输入控件：扁平化，轻边框，聚焦时高亮 */
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  outline: none;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--border-strong);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+button.primary:hover {
+  filter: brightness(0.98);
+}
+
+/* 统一栅格与工具条：页面可复用 */
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+
+.toolbar {
+  display: flex;
+  gap: var(--gap);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+}

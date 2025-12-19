@@ -1,0 +1,163 @@
+{
+  "app": {
+    "title": "Encryption Tool",
+    "tabs": {
+      "keys": "Key Management",
+      "text": "Text Crypto",
+      "files": "File Crypto"
+    }
+  },
+  "common": {
+    "notImplemented": "Not implemented yet",
+    "refresh": "Refresh",
+    "create": "Create",
+    "apply": "Apply",
+    "remove": "Remove",
+    "encrypt": "Encrypt",
+    "decrypt": "Decrypt",
+    "browse": "Browse…",
+    "algorithm": "Algorithm",
+    "key": "Key",
+    "input": "Input",
+    "output": "Output",
+    "file": "File",
+    "outputDir": "Output Directory",
+    "password": "Password",
+    "selectFromKeystore": "(Select from keystore)",
+    "none": "None",
+    "ok": "OK",
+    "cancel": "Cancel",
+    "close": "Close",
+    "loading": "Loading…",
+    "show": "Show",
+    "hide": "Hide",
+    "name": "Name",
+    "type": "Type",
+    "actions": "Actions"
+  },
+  "keys": {
+    "title": "Key Management",
+    "desc": "Manage keystores: generate/import/export keys, and optionally encrypt the keystore with a password.",
+    "create": {
+      "title": "Create Keystore",
+      "name": "Name",
+      "password": "Password (optional)",
+      "help": "Leave empty to create a plaintext keystore."
+    },
+    "manage": {
+      "select": "Select keystore",
+      "emptyOption": "(No keystore)",
+      "oldPassword": "Old password (if encrypted)",
+      "newPassword": "New password (empty to remove)",
+      "help": "Changing password re-encrypts/decrypts the whole keystore file.",
+      "title": "Key Management"
+    },
+    "info": {
+      "title": "Keystore Info",
+      "encrypted": "Encrypted",
+      "notEncrypted": "Not encrypted",
+      "version": "Version",
+      "keyCount": "Key count"
+    },
+    "entries": {
+      "title": "Key Entries (preview)",
+      "passwordHelp": "If the keystore is encrypted, enter the password here to load entries.",
+      "load": "Load entries",
+      "empty": "No keys in this keystore yet.",
+      "table": {
+        "id": "ID",
+        "label": "Label",
+        "type": "Type"
+      }
+    },
+    "msg": {
+      "created": "Keystore created: {name}",
+      "passwordUpdated": "Keystore password setting updated"
+    },
+    "ui": {
+      "lockNow": "Lock Now",
+      "keyListTitle": "Keys",
+      "lockTitle": "Keystore Encryption",
+      "enableLock": "Encrypt Keystore",
+      "disableLock": "Remove Encryption",
+      "enabledUnlocked": "Enabled (unlocked)",
+      "enabledLocked": "Enabled (locked)",
+      "disabled": "Disabled",
+      "actions": {
+        "preview": "Preview key",
+        "export": "Export key"
+      },
+      "emptyKeys": "No keys yet.",
+      "emptyHint": "Keys will appear after you generate/import them.",
+      "status": "Status",
+      "keyCount": "Key count",
+      "version": "Version",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm password",
+      "enableHint": "When enabled, the app requires a password on next launch.",
+      "disableHint": "Lock is enabled. Removing it will skip password on next launch.",
+      "opsTitle": "Key Operations",
+      "generateTitle": "Generate",
+      "importTitle": "Import",
+      "exportTitle": "Export",
+      "deleteTitle": "Delete",
+      "exportFormat": "Export format",
+      "chooseFile": "Choose file…",
+      "saveFile": "Save…",
+      "confirmDelete": "Delete this key?",
+      "selectKeyFirst": "Select a key first.",
+      "formats": {
+        "key_b64": "Base64 (raw key)",
+        "rsa_private_pem": "RSA private key PEM (PKCS8)",
+        "rsa_public_pem": "RSA public key PEM (SPKI)",
+        "x25519_json": "X25519 JSON (secret+public)",
+        "x25519_public_b64": "X25519 public key Base64"
+      },
+      "table": {
+        "name": "Name",
+        "type": "Type",
+        "actions": "Actions"
+      },
+      "errors": {
+        "passwordMismatch": "Passwords do not match",
+        "passwordRequired": "Please enter a password",
+        "nameRequired": "Please enter a key name"
+      },
+      "msg": {
+        "exported": "Exported: {path}"
+      },
+      "previewTitle": "Preview",
+      "preview": {
+        "algorithm": "Algorithm",
+        "publicPem": "Public key (PEM)",
+        "privatePem": "Private key (PEM)",
+        "publicB64": "Public (Base64)",
+        "secretB64": "Secret (Base64)",
+        "symmetricKey": "Key (Base64)"
+      },
+      "importNameLabel": "Key name (required)"
+    }
+  },
+  "text": {
+    "title": "Text Crypto",
+    "desc": "Encrypt/decrypt text with a selected algorithm and key (to be implemented).",
+    "help": {
+      "keyMismatch": "When decrypting with the wrong key, show 'wrong key or data corrupted'.",
+      "algoMatch": "Later we will validate algorithm/key type compatibility."
+    }
+  },
+  "files": {
+    "title": "File Crypto",
+    "desc": "Stream encrypt/decrypt large files, output extension .encrypted (to be implemented).",
+    "help": {
+      "outputExt": "Encrypted output ends with .encrypted; decrypt restores original file name and extension.",
+      "progress": "Progress and cancel will be implemented with streaming."
+    }
+  },
+  "lock": {
+    "title": "App Locked",
+    "subtitle": "Keystore encryption is enabled. Enter the password to unlock.",
+    "passwordPlaceholder": "Enter password",
+    "unlock": "Unlock"
+  }
+}
