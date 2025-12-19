@@ -354,7 +354,13 @@
       <tbody>
         {#each entries as e}
           <tr>
-            <td>{e.label}</td>
+            <!--
+              密钥名称列：
+              - 这里可能出现用户输入的超长名称。
+              - 为避免表格被撑宽产生横向滚动条：UI 采用单行省略号。
+              - title 用于悬停查看完整内容（不额外增加布局复杂度）。
+            -->
+            <td title={e.label}>{e.label}</td>
             <td class="mono">{e.key_type}</td>
             <td class="actions">
               <button class="icon" aria-label={$t("keys.ui.actions.preview")} onclick={() => openPreviewDialog(e)}>
@@ -600,6 +606,13 @@
   .table {
     width: 100%;
     border-collapse: collapse;
+
+    /*
+      表格布局控制：
+      - table-layout: fixed 可以避免某一列因内容过长而“撑爆”整个表格宽度。
+      - 结合 td 的省略号策略，防止出现横向滚动条（尤其在桌面端固定窗口宽度时更明显）。
+    */
+    table-layout: fixed;
   }
 
   .table th,
@@ -608,6 +621,13 @@
     padding: 10px 12px;
     font-size: 13px;
     text-align: left;
+  }
+
+  .table td {
+    /* 单行省略号：让超长内容不撑开布局，避免产生横向滚动条 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .mono {

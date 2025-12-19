@@ -6,6 +6,21 @@
     2) 去“卡片堆叠”：尽量用留白 + 细分割线，而不是一层层盒子。
 */
 
+/*
+  布局/滚动条修复（Tauri WebView 在 Windows 上更容易暴露）：
+  - 统一使用 border-box：避免 width: 100% + padding/border 时产生“隐形横向溢出”，从而出现底部滚动条。
+  - 禁止 html/body 自己滚动：应用内部只保留一个主要滚动容器（layout 的 .main）。
+
+  说明：
+  - 之前 .container 设置了 width: 100% 且有左右 padding；在默认 content-box 盒模型下会导致真实宽度 > 父容器宽度。
+  - 结果就是：即使窗口全屏，也会出现 1~2 个横向滚动条，并可能连带触发额外的纵向滚动条。
+*/
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   /* 颜色体系：灰白系，尽量低饱和 */
   --bg: #f5f5f7;
@@ -44,7 +59,9 @@
 
 html,
 body {
+  width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
 body {

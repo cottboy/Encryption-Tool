@@ -252,7 +252,16 @@
   .main {
     padding: 16px 0;
     flex: 1;
-    overflow: auto;
+
+    /*
+      统一滚动容器：
+      - 纵向允许滚动：承载各页面内容。
+      - 横向禁止滚动：避免因“某个元素轻微超宽”导致出现横向滚动条（并连带触发额外的纵向滚动条）。
+      - min-height: 0：修复 flex 容器中子项默认最小高度导致的溢出问题（常见于出现“看起来不该滚动却在滚动”）。
+    */
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   /* 锁屏层 */
