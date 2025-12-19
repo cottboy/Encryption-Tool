@@ -140,10 +140,31 @@
   },
   "text": {
     "title": "文本加密",
-    "desc": "选择算法与密钥后，对文本进行加密/解密（后续实现）。",
+    "desc": "选择算法与密钥后，对文本进行加密/解密。",
     "help": {
       "keyMismatch": "解密时选错密钥必须提示“密钥错误或数据已损坏”。",
-      "algoMatch": "后续会根据算法与密钥类型做匹配校验。"
+      "algoMatch": "系统会根据算法与密钥类型做匹配校验。"
+    },
+    "ui": {
+      "controls": "文本加密控制区",
+      "placeholders": {
+        "input": "在此输入待处理文本…",
+        "output": "结果会显示在这里…"
+      },
+      "keyHint": {
+        "rsaPublic": "（公钥）",
+        "rsaPrivate": "（私钥）"
+      },
+      "msg": {
+        "rsaHybrid": "文本较长，已自动使用混合加密。"
+      },
+      "errors": {
+        "locked": "应用已锁定：请先在锁屏层输入密码解锁",
+        "selectAlgorithm": "请选择算法",
+        "selectKey": "请选择密钥",
+        "inputRequired": "请输入要处理的文本",
+        "rsaNeedPrivate": "RSA 解密需要私钥，请选择“私钥”类型的 RSA 密钥"
+      }
     }
   },
   "files": {

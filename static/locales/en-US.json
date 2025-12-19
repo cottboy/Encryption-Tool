@@ -140,10 +140,31 @@
   },
   "text": {
     "title": "Text Crypto",
-    "desc": "Encrypt/decrypt text with a selected algorithm and key (to be implemented).",
+    "desc": "Encrypt/decrypt text with a selected algorithm and key.",
     "help": {
       "keyMismatch": "When decrypting with the wrong key, show 'wrong key or data corrupted'.",
-      "algoMatch": "Later we will validate algorithm/key type compatibility."
+      "algoMatch": "The app validates algorithm/key type compatibility."
+    },
+    "ui": {
+      "controls": "Text crypto controls",
+      "placeholders": {
+        "input": "Enter text here…",
+        "output": "Result will appear here…"
+      },
+      "keyHint": {
+        "rsaPublic": "(public)",
+        "rsaPrivate": "(private)"
+      },
+      "msg": {
+        "rsaHybrid": "Text is long; hybrid encryption is used automatically."
+      },
+      "errors": {
+        "locked": "App is locked. Unlock it first.",
+        "selectAlgorithm": "Please select an algorithm",
+        "selectKey": "Please select a key",
+        "inputRequired": "Please enter text",
+        "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA private key."
+      }
     }
   },
   "files": {

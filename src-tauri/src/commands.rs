@@ -23,7 +23,7 @@ use tauri::{AppHandle, State};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::Zeroizing;
 
-use crate::{keystore, state::AppState, state::UnlockedKeystore};
+use crate::{keystore, state::AppState, state::UnlockedKeystore, text_crypto};
 
 // =====================
 // 基础命令（用于连通性）
@@ -764,4 +764,50 @@ pub fn keystore_get_key_preview(app: AppHandle, state: State<'_, AppState>, req:
             secret_b64: secret_b64.clone(),
         }),
     }
+}
+
+// =====================
+// 文本加密/解密（后端执行）
+// =====================
+
+/// 文本加密请求：前端只传“算法 + 密钥 + 明文”，加密全部在后端完成。
+#[derive(Debug, Deserialize)]
+pub struct TextEncryptRequest {
+    /// 选择的算法：AES-256 / ChaCha20 / RSA / X25519
+    pub algorithm: String,
+    /// 密钥库条目 id
+    pub key_id: String,
+    /// 明文输入（UTF-8）
+    pub plaintext: String,
+}
+
+/// 文本解密请求：前端只传“算法 + 密钥 + 密文(JSON)”，解密全部在后端完成。
+#[derive(Debug, Deserialize)]
+pub struct TextDecryptRequest {
+    /// 选择的算法：AES-256 / ChaCha20 / RSA / X25519
+    pub algorithm: String,
+    /// 密钥库条目 id
+    pub key_id: String,
+    /// 密文输入（JSON 自描述容器）
+    pub ciphertext: String,
+}
+
+/// 文本加密：返回 JSON 密文与“是否混合加密”提示位。
+#[tauri::command]
+pub fn text_encrypt(app: AppHandle, state: State<'_, AppState>, req: TextEncryptRequest) -> Result<text_crypto::TextEncryptResponse, String> {
+    // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
+    let plain = load_plain_for_read(&app, &state)?;
+
+    // 调用专用模块执行加密：避免 commands.rs 继续膨胀。
+    text_crypto::encrypt_text(&plain, &req.algorithm, &req.key_id, &req.plaintext)
+}
+
+/// 文本解密：返回明文；解密失败统一提示“密钥错误或数据已损坏”。
+#[tauri::command]
+pub fn text_decrypt(app: AppHandle, state: State<'_, AppState>, req: TextDecryptRequest) -> Result<text_crypto::TextDecryptResponse, String> {
+    // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
+    let plain = load_plain_for_read(&app, &state)?;
+
+    // 调用专用模块执行解密：内部已做错误收敛处理。
+    text_crypto::decrypt_text(&plain, &req.algorithm, &req.key_id, &req.ciphertext)
 }

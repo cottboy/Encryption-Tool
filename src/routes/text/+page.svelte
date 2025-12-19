@@ -1,15 +1,266 @@
 <!--
-  文本加密页（占位）：
-  - 后续会调用 Rust 后端执行加解密，前端只负责收集参数与展示结果。
-  - RSA 有明文长度限制：超长会自动使用“混合加密”（RSA 包裹会话密钥）。
-  - X25519 天然走“混合加密”（协商会话密钥，再用对称算法处理正文）。
+  文本加密页：
+  - 前端职责：
+    1) 展示 UI（算法/密钥选择、输入/输出框）
+    2) 把参数传给后端 invoke
+    3) 展示后端返回的结果/错误
+  - 后端职责：
+    - 加密/解密在 Rust 中完成（性能与安全都更可控）。
 
-  UI 风格：
-  - 扁平化，不使用卡片堆叠。
+  UI 排版要求（按你的反馈调整）：
+  - 顶部一行：算法 / 密钥 / 加密 / 解密
+  - 下方：输入框、输出框
 -->
 
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { t } from "$lib/i18n";
+
+  // =====================
+  // 与后端交互的数据结构（保持与 Rust 命令一致）
+  // =====================
+
+  type SupportedAlgorithms = {
+    symmetric: string[];
+    asymmetric: string[];
+  };
+
+  type KeyStoreStatus = {
+    exists: boolean;
+    encrypted: boolean;
+    unlocked: boolean;
+    version: number;
+    key_count: number | null;
+  };
+
+  type KeyEntryPublic = {
+    id: string;
+    label: string;
+    key_type: string;
+    material_kind: string;
+  };
+
+  type TextEncryptResponse = {
+    ciphertext: string;
+    used_hybrid: boolean;
+  };
+
+  type TextDecryptResponse = {
+    plaintext: string;
+  };
+
+  // =====================
+  // 页面状态
+  // =====================
+
+  // 密钥库状态：用于判断是否已锁定（锁定时无法列出密钥、也无法加解密）。
+  let status = $state<KeyStoreStatus | null>(null);
+
+  // 后端支持的算法列表：用于填充算法下拉框。
+  let supportedAlgorithms = $state<string[]>([]);
+
+  // 密钥列表：来自密钥管理页同一个后端接口。
+  let entries = $state<KeyEntryPublic[]>([]);
+
+  // UI 选择：算法 + 密钥 id
+  let selectedAlgorithm = $state<string>("");
+  let selectedKeyId = $state<string>("");
+
+  // 文本输入/输出：
+  // - 加密：输入=明文，输出=密文 JSON
+  // - 解密：输入=密文 JSON，输出=明文
+  let inputText = $state<string>("");
+  let outputText = $state<string>("");
+
+  // 提示信息：用于展示后端错误、或 RSA 自动混合加密提示等。
+  let message = $state<string>("");
+
+  // 按钮忙碌态：避免重复点击导致并发请求。
+  let busy = $state<boolean>(false);
+
+  function isLocked(): boolean {
+    return !!status?.encrypted && !status?.unlocked;
+  }
+
+  // =====================
+  // 初始化：加载算法列表 + 密钥库状态 + 密钥条目
+  // =====================
+
+  async function refreshStatus() {
+    status = await invoke<KeyStoreStatus>("keystore_status");
+  }
+
+  async function refreshAlgorithms() {
+    const algos = await invoke<SupportedAlgorithms>("get_supported_algorithms");
+    supportedAlgorithms = [...algos.symmetric, ...algos.asymmetric];
+
+    // 默认选择：优先第一个对称算法（更通用），避免页面初次进入为空。
+    if (!selectedAlgorithm && supportedAlgorithms.length > 0) {
+      selectedAlgorithm = supportedAlgorithms[0];
+    }
+  }
+
+  async function refreshEntries() {
+    // 若密钥库已加密但未解锁，后端会返回明确错误；这里交给 message 展示即可。
+    entries = await invoke<KeyEntryPublic[]>("keystore_list_entries");
+  }
+
+  function filteredEntries(): KeyEntryPublic[] {
+    // 只展示与当前算法匹配的密钥，避免用户选错导致体验混乱。
+    if (!selectedAlgorithm) return [];
+    return entries.filter((e) => e.key_type === selectedAlgorithm);
+  }
+
+  // RSA：如果用户选择的是“仅公钥”，则无法解密（解密需要私钥）。
+  function canDecryptWithSelectedKey(): boolean {
+    if (selectedAlgorithm !== "RSA") return true;
+    const entry = entries.find((e) => e.id === selectedKeyId);
+    return entry?.material_kind === "rsa_private";
+  }
+
+  // 选择算法后，清空之前的密钥选择（避免残留不匹配的 id）。
+  $effect(() => {
+    // 仅在算法确实变化时清空（避免初始化阶段造成反复抖动）。
+    if (!selectedAlgorithm) return;
+    selectedKeyId = "";
+    message = "";
+    outputText = "";
+  });
+
+  onMount(() => {
+    // 页面进入时初始化。
+    const init = async () => {
+      message = "";
+      await refreshStatus();
+      await refreshAlgorithms();
+      await refreshEntries();
+    };
+
+    init().catch((e) => {
+      message = typeof e === "string" ? e : String(e);
+    });
+
+    // 监听密钥库状态变更（由 layout 或密钥管理页触发）：
+    // - 例如：解锁/锁定后，需要刷新密钥列表。
+    const handler = () => {
+      refreshStatus()
+        .then(() => refreshEntries())
+        .catch((e) => {
+          message = typeof e === "string" ? e : String(e);
+        });
+    };
+
+    window.addEventListener("keystore_status_changed", handler);
+    return () => window.removeEventListener("keystore_status_changed", handler);
+  });
+
+  // =====================
+  // 加密/解密动作：全部调用后端 Rust 执行
+  // =====================
+
+  async function doEncrypt() {
+    if (busy) return;
+    message = "";
+    outputText = "";
+
+    if (isLocked()) {
+      message = $t("text.ui.errors.locked");
+      return;
+    }
+
+    if (!selectedAlgorithm) {
+      message = $t("text.ui.errors.selectAlgorithm");
+      return;
+    }
+    if (!selectedKeyId) {
+      message = $t("text.ui.errors.selectKey");
+      return;
+    }
+    if (!inputText.trim()) {
+      message = $t("text.ui.errors.inputRequired");
+      return;
+    }
+
+    busy = true;
+    try {
+      const res = await invoke<TextEncryptResponse>("text_encrypt", {
+        req: {
+          algorithm: selectedAlgorithm,
+          key_id: selectedKeyId,
+          plaintext: inputText
+        }
+      });
+
+      outputText = res.ciphertext;
+
+      // RSA：明文超长时后端会自动混合加密，这里给一个明确提示。
+      if (selectedAlgorithm === "RSA" && res.used_hybrid) {
+        message = $t("text.ui.msg.rsaHybrid");
+      }
+    } catch (e) {
+      message = typeof e === "string" ? e : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function doDecrypt() {
+    if (busy) return;
+    message = "";
+    outputText = "";
+
+    if (isLocked()) {
+      message = $t("text.ui.errors.locked");
+      return;
+    }
+
+    if (!selectedAlgorithm) {
+      message = $t("text.ui.errors.selectAlgorithm");
+      return;
+    }
+    if (!selectedKeyId) {
+      message = $t("text.ui.errors.selectKey");
+      return;
+    }
+    if (!canDecryptWithSelectedKey()) {
+      message = $t("text.ui.errors.rsaNeedPrivate");
+      return;
+    }
+    if (!inputText.trim()) {
+      message = $t("text.ui.errors.inputRequired");
+      return;
+    }
+
+    busy = true;
+    try {
+      const res = await invoke<TextDecryptResponse>("text_decrypt", {
+        req: {
+          algorithm: selectedAlgorithm,
+          key_id: selectedKeyId,
+          ciphertext: inputText
+        }
+      });
+
+      outputText = res.plaintext;
+    } catch (e) {
+      // 解密失败的核心提示由后端统一收敛：密钥错误或数据已损坏。
+      message = typeof e === "string" ? e : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function keyOptionLabel(e: KeyEntryPublic): string {
+    // RSA 的公钥/私钥需要在下拉中区分，否则用户容易选错导致“不能解密”。
+    if (e.key_type === "RSA") {
+      return e.material_kind === "rsa_public"
+        ? `${e.label} ${$t("text.ui.keyHint.rsaPublic")}`
+        : `${e.label} ${$t("text.ui.keyHint.rsaPrivate")}`;
+    }
+
+    return e.label;
+  }
 </script>
 
 <h1 class="h1">{$t("text.title")}</h1>
@@ -17,40 +268,53 @@
 
 <div class="divider" style="margin: 14px 0"></div>
 
-<div class="grid2">
-  <div>
+<!--
+  顶部控制区：按“算法 / 密钥 / 加密 / 解密”的顺序排列。
+  - 这里做成一行 flex：桌面端窗口变宽时不会错位；窗口变窄时允许换行。
+-->
+<div class="controls" aria-label={$t("text.ui.controls")}>
+  <div class="field">
     <div class="label">{$t("common.algorithm")}</div>
-    <select disabled>
-      <option>AES-256</option>
-      <option>ChaCha20</option>
-      <option>RSA（超长自动混合）</option>
-      <option>X25519（混合加密）</option>
+    <select bind:value={selectedAlgorithm} disabled={busy || isLocked()}>
+      {#each supportedAlgorithms as a}
+        <option value={a}>{a}</option>
+      {/each}
     </select>
     <div class="help">{$t("text.help.algoMatch")}</div>
   </div>
 
-  <div>
+  <div class="field">
     <div class="label">{$t("common.key")}</div>
-    <select disabled>
-      <option>{$t("common.selectFromKeystore")}</option>
+    <select bind:value={selectedKeyId} disabled={busy || isLocked()}>
+      <option value="">{$t("common.selectFromKeystore")}</option>
+      {#each filteredEntries() as e}
+        <option value={e.id}>{keyOptionLabel(e)}</option>
+      {/each}
     </select>
     <div class="help">{$t("text.help.keyMismatch")}</div>
   </div>
+
+  <div class="actions">
+    <div class="label" style="opacity: 0">.</div>
+    <div class="btn-row">
+      <button class="primary" onclick={doEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
+      <button onclick={doDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
+    </div>
+  </div>
 </div>
 
-<div style="margin-top: 12px">
+{#if message}
+  <div class="help" style="margin-top: 10px; color: #0b4db8">{message}</div>
+{/if}
+
+<div class="io" style="margin-top: 12px">
   <div class="label">{$t("common.input")}</div>
-  <textarea disabled rows="8" placeholder={$t("common.notImplemented")}></textarea>
+  <textarea bind:value={inputText} rows="8" placeholder={$t("text.ui.placeholders.input")} disabled={busy || isLocked()}></textarea>
 </div>
 
-<div style="margin-top: 12px">
+<div class="io" style="margin-top: 12px">
   <div class="label">{$t("common.output")}</div>
-  <textarea disabled rows="8" placeholder={$t("common.notImplemented")}></textarea>
-</div>
-
-<div class="toolbar" style="margin-top: 12px">
-  <button class="primary" disabled>{$t("common.encrypt")}</button>
-  <button disabled>{$t("common.decrypt")}</button>
+  <textarea bind:value={outputText} rows="8" placeholder={$t("text.ui.placeholders.output")} readonly></textarea>
 </div>
 
 <style>
@@ -58,5 +322,35 @@
     font-size: 12px;
     color: var(--muted);
     margin-bottom: 6px;
+  }
+
+  .controls {
+    display: flex;
+    gap: var(--gap);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .field {
+    min-width: 220px;
+  }
+
+  .field select {
+    width: 100%;
+  }
+
+  .actions {
+    margin-left: auto;
+    min-width: 200px;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: var(--gap);
+    justify-content: flex-end;
+  }
+
+  .io textarea {
+    width: 100%;
   }
 </style>

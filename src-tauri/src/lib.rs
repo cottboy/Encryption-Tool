@@ -7,6 +7,7 @@
 mod commands;
 mod keystore;
 mod state;
+mod text_crypto;
 
 use state::AppState;
 
@@ -37,6 +38,9 @@ pub fn run() {
             commands::keystore_import_key,
             commands::keystore_export_key,
             commands::keystore_delete_key,
+            // 文本加密/解密（后端执行）
+            commands::text_encrypt,
+            commands::text_decrypt,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用时发生错误");

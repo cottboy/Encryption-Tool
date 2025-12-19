@@ -56,6 +56,19 @@ rsa = { version = "0.9", features = ["pem"] }
 # X25519：生成密钥对（用于后续混合加密/密钥协商）。
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 
+#
+# =============
+# 文本加密依赖
+# =============
+# 对称加密：
+# - AES-256-GCM：用于 AES-256 文本加密/解密（认证加密，防篡改）
+aes-gcm = { version = "0.10", features = ["std"] }
+
+# 哈希/KDF：
+# - SHA-256：RSA-OAEP 以及 HKDF 的底层哈希
+sha2 = "0.10"
+# - HKDF：X25519 共享密钥 → 会话密钥派生
+hkdf = "0.12"
 
 
 
