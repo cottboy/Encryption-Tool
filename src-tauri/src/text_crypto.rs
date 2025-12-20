@@ -294,8 +294,10 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
                 let mut session_key = Zeroizing::new([0u8; 32]);
                 OsRng.fill_bytes(session_key.as_mut());
 
-                // data_alg：这里固定选择 ChaCha20（AEAD 为 ChaCha20-Poly1305），避免再引入复杂协商。
-                let data_alg = "ChaCha20";
+                // data_alg：混合加密的“数据加密”部分固定使用 AES-256（AEAD：AES-256-GCM）。
+                // - 需求确认：希望混合加密统一用 AES-256，而不是 ChaCha20。
+                // - 注意：nonce 仍然是每次随机生成的 12 字节（GCM 推荐长度）。
+                let data_alg = "AES-256";
                 let nonce = random_nonce_12();
                 let data_ct = aead_encrypt(data_alg, &session_key, &nonce, plaintext)?;
 
@@ -341,7 +343,9 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             hk.expand(b"encryption-tool:text:v1", derived.as_mut())
                 .map_err(|_| "加密失败".to_string())?;
 
-            let data_alg = "ChaCha20";
+            // data_alg：混合加密的“数据加密”部分固定使用 AES-256（AEAD：AES-256-GCM）。
+            // - 需求确认：希望 X25519 协商出的会话密钥用于 AES-256-GCM。
+            let data_alg = "AES-256";
             let data_ct = aead_encrypt(data_alg, &derived, &nonce, plaintext)?;
 
             let payload = TextCipherPayload::HybridX25519 {
@@ -371,7 +375,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
     let key_id = key_id.trim();
     if algo.is_empty() || key_id.is_empty() {
         return Err(DECRYPT_FAIL_MSG.to_string());
-    }
+}
 
     // 先加载密钥，并做基础匹配（注意：解密错误不应泄露细节）。
     let entry = find_entry(plain, key_id).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
@@ -497,5 +501,107 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             let out = String::from_utf8(pt).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
             Ok(TextDecryptResponse { plaintext: out })
         }
+    }
+}
+
+// =====================
+// 单元测试：验证混合加密使用 AES-256
+// =====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+
+    /// 构造一个仅用于测试的明文密钥库：
+    /// - 包含 RSA 私钥（用于解密）
+    /// - 包含 X25519 密钥对（用于解密）
+    fn build_test_keystore() -> keystore::KeyStorePlain {
+        // RSA：生成 2048 位私钥（与应用默认一致），并导出 PEM。
+        let rsa_private = RsaPrivateKey::new(&mut OsRng, 2048).expect("生成 RSA 私钥失败");
+        let rsa_public = RsaPublicKey::from(&rsa_private);
+
+        let rsa_private_pem = rsa_private
+            .to_pkcs8_pem(LineEnding::LF)
+            .expect("导出 RSA 私钥 PEM 失败")
+            .to_string();
+        let rsa_public_pem = rsa_public
+            .to_public_key_pem(LineEnding::LF)
+            .expect("导出 RSA 公钥 PEM 失败")
+            .to_string();
+
+        // X25519：生成 32 字节私钥，并计算公钥（与应用默认一致）。
+        let mut x_secret = [0u8; 32];
+        OsRng.fill_bytes(&mut x_secret);
+        let x_secret_obj = X25519StaticSecret::from(x_secret);
+        let x_public_obj = X25519PublicKey::from(&x_secret_obj);
+
+        keystore::KeyStorePlain {
+            version: 1,
+            key_entries: vec![
+                keystore::KeyEntry {
+                    id: "rsa".to_string(),
+                    label: "rsa".to_string(),
+                    key_type: "RSA".to_string(),
+                    material: keystore::KeyMaterial::RsaPrivate {
+                        private_pem: rsa_private_pem,
+                        public_pem: rsa_public_pem,
+                    },
+                },
+                keystore::KeyEntry {
+                    id: "x25519".to_string(),
+                    label: "x25519".to_string(),
+                    key_type: "X25519".to_string(),
+                    material: keystore::KeyMaterial::X25519 {
+                        secret_b64: B64.encode(x_secret),
+                        public_b64: B64.encode(x_public_obj.as_bytes()),
+                    },
+                },
+            ],
+        }
+    }
+
+    /// RSA：输入足够长，强制走混合加密，并确保 data_alg= AES-256，且能解密回原文。
+    #[test]
+    fn rsa_hybrid_should_use_aes256_and_roundtrip() {
+        let ks = build_test_keystore();
+
+        // 构造超长文本：确保超过 RSA-OAEP 的直接加密上限。
+        let input = "A".repeat(1024);
+
+        let enc = encrypt_text(&ks, "RSA", "rsa", &input).expect("RSA 加密失败");
+        assert!(enc.used_hybrid, "RSA 超长输入应当触发混合加密");
+
+        let payload: TextCipherPayload = serde_json::from_str(&enc.ciphertext).expect("解析密文 JSON 失败");
+        match payload {
+            TextCipherPayload::HybridRsa { data_alg, .. } => {
+                assert_eq!(data_alg, "AES-256", "RSA 混合加密的数据部分必须使用 AES-256");
+            }
+            _ => panic!("RSA 超长输入应当生成 HybridRsa 容器"),
+        }
+
+        let dec = decrypt_text(&ks, "RSA", "rsa", &enc.ciphertext).expect("RSA 解密失败");
+        assert_eq!(dec.plaintext, input, "RSA 混合加密解密结果应与原文一致");
+    }
+
+    /// X25519：天然走混合加密，确保 data_alg= AES-256，且能解密回原文。
+    #[test]
+    fn x25519_hybrid_should_use_aes256_and_roundtrip() {
+        let ks = build_test_keystore();
+        let input = "Hello X25519 hybrid";
+
+        let enc = encrypt_text(&ks, "X25519", "x25519", input).expect("X25519 加密失败");
+        assert!(enc.used_hybrid, "X25519 应当始终走混合加密");
+
+        let payload: TextCipherPayload = serde_json::from_str(&enc.ciphertext).expect("解析密文 JSON 失败");
+        match payload {
+            TextCipherPayload::HybridX25519 { data_alg, .. } => {
+                assert_eq!(data_alg, "AES-256", "X25519 混合加密的数据部分必须使用 AES-256");
+            }
+            _ => panic!("X25519 应当生成 HybridX25519 容器"),
+        }
+
+        let dec = decrypt_text(&ks, "X25519", "x25519", &enc.ciphertext).expect("X25519 解密失败");
+        assert_eq!(dec.plaintext, input, "X25519 混合加密解密结果应与原文一致");
     }
 }
