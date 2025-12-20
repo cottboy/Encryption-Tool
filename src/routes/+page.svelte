@@ -1,15 +1,14 @@
 <!--
   密钥管理（单一 keystore）：
   - 顶部一排按钮：生成密钥 / 导入密钥 / 加密密钥（应用锁）
-  - 下方全宽密钥列表：每行提供“预览（小眼睛）/ 导出”
-  - 说明：敏感材料始终在后端读取与处理；前端只做展示与文件选择
+  - 下方全宽密钥列表：点击任意一行打开“密钥详情”，可编辑/复制
+  - 说明：敏感材料始终在后端读取与处理；前端只做展示、输入收集与复制操作
 -->
 
 <script lang="ts">
   import { onMount } from "svelte";
 
   import { invoke } from "@tauri-apps/api/core";
-  import { open, save } from "@tauri-apps/plugin-dialog";
 
   import { t } from "$lib/i18n";
 
@@ -28,15 +27,41 @@
     material_kind: string;
   };
 
-  type KeyPreview =
-    | { kind: "symmetric"; label: string; algorithm: string; key_b64: string }
-    | { kind: "rsa"; label: string; material_kind: string; public_pem: string; private_pem: string | null }
-    | { kind: "x25519"; label: string; public_b64: string; secret_b64: string };
+  // 密钥详情：用于“点击密钥行 → 弹窗编辑/复制”。
+  // 注意：该结构包含敏感材料，前端必须默认隐藏敏感字段，并对显示/复制做二次确认。
+  type KeyDetailRaw = {
+    id: string;
+    label: string;
+    key_type: string;
+    material_kind: string;
 
-  const supportedTypes = ["AES-256", "ChaCha20", "RSA", "X25519"] as const;
+    symmetric_key_b64: string | null;
+
+    rsa_public_pem: string | null;
+    rsa_private_pem: string | null;
+
+    x25519_public_b64: string | null;
+    x25519_secret_b64: string | null;
+  };
+
+  // 弹窗编辑态：为了让 `bind:value` 稳定工作，这里把所有字段都归一化为 string（缺失则置空）。
+  type KeyDetail = {
+    id: string;
+    label: string;
+    key_type: string;
+    material_kind: string;
+
+    symmetric_key_b64: string;
+
+    rsa_public_pem: string;
+    rsa_private_pem: string;
+
+    x25519_public_b64: string;
+    x25519_secret_b64: string;
+  };
+
+  const supportedTypes = ["AES-256", "ChaCha20", "RSA2048", "RSA4096", "X25519"] as const;
   type SupportedType = (typeof supportedTypes)[number];
-
-  type ExportFormat = "key_b64" | "private_pem" | "public_pem" | "json" | "public_b64";
 
   let status = $state<KeyStoreStatus | null>(null);
   let entries = $state<KeyEntryPublic[]>([]);
@@ -47,17 +72,12 @@
   let showGenerate = $state(false);
   let showImport = $state(false);
   let showLock = $state(false);
-  let showPreview = $state(false);
-  let showExport = $state(false);
+  let showDetail = $state(false);
 
   // 统一处理“关闭弹窗”，用于键盘 ESC。
   function closeTopModal() {
-    if (showExport) {
-      showExport = false;
-      return;
-    }
-    if (showPreview) {
-      showPreview = false;
+    if (showDetail) {
+      showDetail = false;
       return;
     }
     if (showLock) {
@@ -80,22 +100,25 @@
   // Import
   let importType = $state<SupportedType>("AES-256");
   let importLabel = $state("");
+  let importSymmetricKeyB64 = $state("");
+  let importRsaPublicPem = $state("");
+  let importRsaPrivatePem = $state("");
+  let importX25519PublicB64 = $state("");
+  let importX25519SecretB64 = $state("");
 
   // Lock (encrypt keystore)
   let lockPassword = $state("");
   let lockPassword2 = $state("");
 
-  // Preview
-  let preview = $state<KeyPreview | null>(null);
-  let previewShowSecret = $state(false);
-
-  // Export
-  let exportEntry = $state<KeyEntryPublic | null>(null);
-  let exportFormat = $state<ExportFormat>("key_b64");
+  // Detail（点击密钥行打开）
+  let detail = $state<KeyDetail | null>(null);
+  let detailShowSecret = $state(false);
+  let detailShowRsaPrivate = $state(false);
+  let detailShowX25519Secret = $state(false);
 
   // 键盘快捷键：当任意弹窗开启时，按 ESC 关闭。
   $effect(() => {
-    const anyOpen = showGenerate || showImport || showLock || showPreview || showExport;
+    const anyOpen = showGenerate || showImport || showLock || showDetail;
     if (!anyOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -193,101 +216,202 @@
       return;
     }
 
-    const picked = await open({ multiple: false, directory: false });
-    if (!picked || typeof picked !== "string") return;
-
-    await invoke("keystore_import_key", {
-      req: {
-        key_type: importType,
+    // 手动导入：前端把用户输入的密钥材料直接传给后端做校验与落库。
+    // 注意：对称/非对称的字段不同，这里只传当前类型相关字段，避免混淆。
+    await invoke("keystore_import_key_manual", {
+      req: buildUpsertPayload(importType, {
         label: name,
-        path: picked
-      }
+        symmetric_key_b64: importSymmetricKeyB64,
+        rsa_public_pem: importRsaPublicPem,
+        rsa_private_pem: importRsaPrivatePem,
+        x25519_public_b64: importX25519PublicB64,
+        x25519_secret_b64: importX25519SecretB64
+      })
     });
 
     showImport = false;
     importLabel = "";
+    importSymmetricKeyB64 = "";
+    importRsaPublicPem = "";
+    importRsaPrivatePem = "";
+    importX25519PublicB64 = "";
+    importX25519SecretB64 = "";
     await refresh();
     notifyKeystoreChanged();
   }
 
-  function openPreviewDialog(entry: KeyEntryPublic) {
-    preview = null;
-    previewShowSecret = false;
-    showPreview = true;
+  // =====================
+  // 工具函数：类型展示/二次确认/剪贴板复制
+  // =====================
 
-    invoke<KeyPreview>("keystore_get_key_preview", { req: { id: entry.id } })
-      .then((p) => {
-        preview = p;
-      })
-      .catch((e) => {
-        message = formatError(e);
-        showPreview = false;
-      });
+  function typeSuffix(materialKind: string): string {
+    switch (materialKind) {
+      case "rsa_public_only":
+        return $t("keys.ui.materialSuffix.rsaPublicOnly");
+      case "rsa_private_only":
+        return $t("keys.ui.materialSuffix.rsaPrivateOnly");
+      case "rsa_full":
+        return $t("keys.ui.materialSuffix.rsaFull");
+      case "x25519_public_only":
+        return $t("keys.ui.materialSuffix.x25519PublicOnly");
+      case "x25519_secret_only":
+        return $t("keys.ui.materialSuffix.x25519SecretOnly");
+      case "x25519_full":
+        return $t("keys.ui.materialSuffix.x25519Full");
+      default:
+        return "";
+    }
   }
 
-  function defaultExportFormatFor(entry: KeyEntryPublic): ExportFormat {
-    if (entry.material_kind === "rsa_private") return "private_pem";
-    if (entry.material_kind === "rsa_public") return "public_pem";
-    if (entry.material_kind === "x25519") return "json";
-    return "key_b64";
+  function keyTypeDisplay(e: KeyEntryPublic): string {
+    // 对称：直接显示算法名；非对称：追加“仅公钥/仅私钥/完整”。
+    if (e.material_kind === "symmetric") return e.key_type;
+    return `${e.key_type}${typeSuffix(e.material_kind)}`;
   }
 
-  function availableExportFormats(entry: KeyEntryPublic): { value: ExportFormat; label: string }[] {
-    if (entry.material_kind === "rsa_private") {
-      return [
-        { value: "private_pem", label: $t("keys.ui.formats.rsa_private_pem") },
-        { value: "public_pem", label: $t("keys.ui.formats.rsa_public_pem") }
-      ];
-    }
-
-    if (entry.material_kind === "rsa_public") {
-      return [{ value: "public_pem", label: $t("keys.ui.formats.rsa_public_pem") }];
-    }
-
-    if (entry.material_kind === "x25519") {
-      return [
-        { value: "json", label: $t("keys.ui.formats.x25519_json") },
-        { value: "public_b64", label: $t("keys.ui.formats.x25519_public_b64") }
-      ];
-    }
-
-    return [{ value: "key_b64", label: $t("keys.ui.formats.key_b64") }];
+  function confirmSensitive(opKey: string): boolean {
+    // 二次确认：敏感字段显示/复制前，避免误触泄露。
+    return window.confirm($t(opKey));
   }
 
-  function getDefaultExportName(entry: KeyEntryPublic, fmt: ExportFormat): string {
-    const base = entry.label || "key";
-    if (entry.key_type === "RSA") {
-      return fmt === "public_pem" ? `${base}.public.pem` : `${base}.private.pem`;
+  async function copyText(text: string): Promise<void> {
+    // 优先使用标准 Clipboard API；失败则退化为 execCommand（兼容一些 WebView 环境）。
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
     }
-    if (entry.key_type === "X25519") {
-      return fmt === "public_b64" ? `${base}.public.txt` : `${base}.x25519.json`;
-    }
-    return `${base}.key.txt`;
   }
 
-  function openExportDialog(entry: KeyEntryPublic) {
-    exportEntry = entry;
-    exportFormat = defaultExportFormatFor(entry);
-    showExport = true;
+  async function copyField(value: string, sensitive: boolean): Promise<void> {
+    if (!value.trim()) return;
+
+    if (sensitive) {
+      const ok = confirmSensitive("keys.ui.confirm.copySensitive");
+      if (!ok) return;
+    }
+
+    try {
+      await copyText(value);
+      message = $t("keys.ui.msg.copied");
+    } catch (e) {
+      message = formatError(e);
+    }
   }
 
-  async function doExport() {
+  // =====================
+  // 密钥详情：打开/编辑/保存
+  // =====================
+
+  function resetDetailState() {
+    detail = null;
+    detailShowSecret = false;
+    detailShowRsaPrivate = false;
+    detailShowX25519Secret = false;
+  }
+
+  async function openDetail(entry: KeyEntryPublic) {
     message = "";
-    if (!exportEntry) return;
+    resetDetailState();
+    showDetail = true;
 
-    const target = await save({ defaultPath: getDefaultExportName(exportEntry, exportFormat) });
-    if (!target || typeof target !== "string") return;
+    try {
+      const raw = await invoke<KeyDetailRaw>("keystore_get_key_detail", { req: { id: entry.id } });
+      detail = {
+        ...raw,
+        symmetric_key_b64: raw.symmetric_key_b64 ?? "",
+        rsa_public_pem: raw.rsa_public_pem ?? "",
+        rsa_private_pem: raw.rsa_private_pem ?? "",
+        x25519_public_b64: raw.x25519_public_b64 ?? "",
+        x25519_secret_b64: raw.x25519_secret_b64 ?? ""
+      };
+    } catch (e) {
+      message = formatError(e);
+      showDetail = false;
+    }
+  }
 
-    await invoke("keystore_export_key", {
+  function buildUpsertPayload(tp: SupportedType, fields: {
+    label: string;
+    symmetric_key_b64: string;
+    rsa_public_pem: string;
+    rsa_private_pem: string;
+    x25519_public_b64: string;
+    x25519_secret_b64: string;
+  }) {
+    // 只发送当前类型相关的字段，避免把“旧类型残留字段”误传给后端。
+    if (tp === "AES-256" || tp === "ChaCha20") {
+      return {
+        key_type: tp,
+        label: fields.label,
+        symmetric_key_b64: fields.symmetric_key_b64,
+        rsa_public_pem: null,
+        rsa_private_pem: null,
+        x25519_public_b64: null,
+        x25519_secret_b64: null
+      };
+    }
+
+    if (tp === "X25519") {
+      return {
+        key_type: tp,
+        label: fields.label,
+        symmetric_key_b64: null,
+        rsa_public_pem: null,
+        rsa_private_pem: null,
+        x25519_public_b64: fields.x25519_public_b64,
+        x25519_secret_b64: fields.x25519_secret_b64
+      };
+    }
+
+    // RSA2048 / RSA4096
+    return {
+      key_type: tp,
+      label: fields.label,
+      symmetric_key_b64: null,
+      rsa_public_pem: fields.rsa_public_pem,
+      rsa_private_pem: fields.rsa_private_pem,
+      x25519_public_b64: null,
+      x25519_secret_b64: null
+    };
+  }
+
+  async function saveDetail() {
+    if (!detail) return;
+    message = "";
+
+    const name = detail.label.trim();
+    if (!name) {
+      message = $t("keys.ui.errors.nameRequired");
+      return;
+    }
+
+    await invoke("keystore_update_key", {
       req: {
-        id: exportEntry.id,
-        format: exportFormat,
-        path: target
+        id: detail.id,
+        data: buildUpsertPayload(detail.key_type as SupportedType, {
+          label: name,
+          symmetric_key_b64: detail.symmetric_key_b64,
+          rsa_public_pem: detail.rsa_public_pem,
+          rsa_private_pem: detail.rsa_private_pem,
+          x25519_public_b64: detail.x25519_public_b64,
+          x25519_secret_b64: detail.x25519_secret_b64
+        })
       }
     });
 
-    showExport = false;
-    message = $t("keys.ui.msg.exported", { path: target });
+    showDetail = false;
+    await refresh();
+    notifyKeystoreChanged();
   }
 
   onMount(() => {
@@ -347,13 +471,12 @@
       <thead>
         <tr>
           <th style="width: 60%">{$t("common.name")}</th>
-          <th style="width: 20%">{$t("common.type")}</th>
-          <th style="width: 20%">{$t("common.actions")}</th>
+          <th style="width: 40%">{$t("common.type")}</th>
         </tr>
       </thead>
       <tbody>
         {#each entries as e}
-          <tr>
+          <tr class="clickable" onclick={() => openDetail(e)}>
             <!--
               密钥名称列：
               - 这里可能出现用户输入的超长名称。
@@ -361,40 +484,7 @@
               - title 用于悬停查看完整内容（不额外增加布局复杂度）。
             -->
             <td title={e.label}>{e.label}</td>
-            <td class="mono">{e.key_type}</td>
-            <td class="actions">
-              <button class="icon" aria-label={$t("keys.ui.actions.preview")} onclick={() => openPreviewDialog(e)}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
-
-              <button class="icon" aria-label={$t("keys.ui.actions.export")} onclick={() => openExportDialog(e)}>
-                <!--
-                  导出图标（“退出登录”风格）：
-                  - 你希望的语义更接近“从应用/列表中导出到外部”，而不是“下载到本地”。
-                  - 这里采用常见的“门框 + 向右箭头”样式，视觉上类似退出登录。
-                  - 仅更换图标，不改变导出逻辑（仍然弹出导出对话框）。
-                -->
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <!-- 门框/容器 -->
-                  <path d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" />
-                  <!-- 向右“退出”箭头 -->
-                  <polyline points="15 17 20 12 15 7" />
-                  <line x1="20" y1="12" x2="10" y2="12" />
-                </svg>
-              </button>
-            </td>
+            <td class="mono">{keyTypeDisplay(e)}</td>
           </tr>
         {/each}
       </tbody>
@@ -458,6 +548,32 @@
           <input bind:value={importLabel} placeholder="" />
         </div>
       </div>
+
+      <!--
+        手动导入：按算法类型显示不同输入项
+        - 对称：只需要密钥（Base64）
+        - RSA：公钥/私钥（PEM）可任选其一或同时填写
+        - X25519：公钥/私钥（Base64）可任选其一或同时填写
+      -->
+      {#if importType === "AES-256" || importType === "ChaCha20"}
+        <div class="label" style="margin-top: 12px">{$t("keys.ui.preview.symmetricKey")}</div>
+        <textarea rows="5" bind:value={importSymmetricKeyB64} placeholder={$t("keys.ui.placeholders.symmetricB64")}></textarea>
+      {:else if importType === "X25519"}
+        <div class="label" style="margin-top: 12px">{$t("keys.ui.preview.publicB64")}</div>
+        <textarea rows="4" bind:value={importX25519PublicB64} placeholder={$t("keys.ui.placeholders.x25519PublicB64")}></textarea>
+
+        <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.secretB64")}</div>
+        <textarea rows="4" bind:value={importX25519SecretB64} placeholder={$t("keys.ui.placeholders.x25519SecretB64")}></textarea>
+
+        <div class="help" style="margin-top: 8px">{$t("keys.ui.hints.x25519NeedFull")}</div>
+      {:else}
+        <div class="label" style="margin-top: 12px">{$t("keys.ui.preview.publicPem")}</div>
+        <textarea rows="8" bind:value={importRsaPublicPem} placeholder={$t("keys.ui.placeholders.rsaPublicPem")}></textarea>
+
+        <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.privatePem")}</div>
+        <textarea rows="10" bind:value={importRsaPrivatePem} placeholder={$t("keys.ui.placeholders.rsaPrivatePem")}></textarea>
+      {/if}
+
       <div class="toolbar" style="margin-top: 12px">
         <button class="primary" onclick={async () => {
           try {
@@ -465,7 +581,7 @@
           } catch (e) {
             message = formatError(e);
           }
-        }}>{$t("keys.ui.chooseFile")}</button>
+        }}>{$t("common.ok")}</button>
         <button onclick={() => (showImport = false)}>{$t("common.cancel")}</button>
       </div>
     </div>
@@ -515,98 +631,115 @@
   </div>
 {/if}
 
-{#if showPreview}
+{#if showDetail}
   <div class="modal" role="presentation">
-    <div class="modal-inner" role="dialog" tabindex="-1" aria-modal="true" aria-label={$t("keys.ui.previewTitle")}>
-      <div class="modal-title">{$t("keys.ui.previewTitle")}</div>
+    <div class="modal-inner" role="dialog" tabindex="-1" aria-modal="true" aria-label={$t("keys.ui.detailTitle")}>
+      <div class="modal-title">{$t("keys.ui.detailTitle")}</div>
 
-      {#if !preview}
+      {#if !detail}
         <p class="help">{$t("common.loading")}</p>
       {:else}
-        <div class="label">{$t("common.name")}</div>
-        <div class="value">{preview.label}</div>
+        <div class="grid2" style="margin-top: 10px">
+          <div>
+            <div class="label">{$t("common.algorithm")}</div>
+            <select bind:value={detail.key_type}>
+              {#each supportedTypes as tp}
+                <option value={tp}>{tp}</option>
+              {/each}
+            </select>
+          </div>
+          <div>
+            <div class="label">{$t("common.name")}</div>
+            <input bind:value={detail.label} placeholder="" />
+          </div>
+        </div>
 
         <div class="divider" style="margin: 12px 0"></div>
 
-        {#if preview.kind === "symmetric"}
-          <div class="label">{$t("keys.ui.preview.algorithm")}</div>
-          <div class="value">{preview.algorithm}</div>
-
-          <div class="toolbar" style="margin-top: 10px">
-            <button onclick={() => (previewShowSecret = !previewShowSecret)}>
-              {previewShowSecret ? $t("common.hide") : $t("common.show")}
+        {#if detail.key_type === "AES-256" || detail.key_type === "ChaCha20"}
+          <div class="label">{$t("keys.ui.preview.symmetricKey")}</div>
+          <div class="toolbar" style="margin-top: 8px">
+            <button onclick={() => {
+              if (!detailShowSecret) {
+                if (!confirmSensitive("keys.ui.confirm.showSensitive")) return;
+              }
+              detailShowSecret = !detailShowSecret;
+            }}>
+              {detailShowSecret ? $t("common.hide") : $t("common.show")}
             </button>
+            <button onclick={async () => {
+              await copyField(detail?.symmetric_key_b64 ?? "", true);
+            }}>{$t("keys.ui.copy")}</button>
           </div>
-
-          {#if previewShowSecret}
-            <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.symmetricKey")}</div>
-            <textarea rows="5" readonly>{preview.key_b64}</textarea>
+          {#if detailShowSecret}
+            <textarea rows="5" bind:value={detail.symmetric_key_b64}></textarea>
           {/if}
-        {:else if preview.kind === "rsa"}
-          <div class="label">{$t("keys.ui.preview.publicPem")}</div>
-          <textarea rows="8" readonly>{preview.public_pem}</textarea>
-
-          {#if preview.private_pem}
-            <div class="toolbar" style="margin-top: 10px">
-              <button onclick={() => (previewShowSecret = !previewShowSecret)}>
-                {previewShowSecret ? $t("common.hide") : $t("common.show")}
-              </button>
-            </div>
-            {#if previewShowSecret}
-              <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.privatePem")}</div>
-              <textarea rows="10" readonly>{preview.private_pem}</textarea>
-            {/if}
-          {/if}
-        {:else}
+        {:else if detail.key_type === "X25519"}
           <div class="label">{$t("keys.ui.preview.publicB64")}</div>
-          <textarea rows="4" readonly>{preview.public_b64}</textarea>
-
-          <div class="toolbar" style="margin-top: 10px">
-            <button onclick={() => (previewShowSecret = !previewShowSecret)}>
-              {previewShowSecret ? $t("common.hide") : $t("common.show")}
-            </button>
+          <div class="toolbar" style="margin-top: 8px">
+            <button onclick={async () => {
+              await copyField(detail?.x25519_public_b64 ?? "", false);
+            }}>{$t("keys.ui.copy")}</button>
           </div>
+          <textarea rows="4" bind:value={detail.x25519_public_b64}></textarea>
 
-          {#if previewShowSecret}
-            <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.secretB64")}</div>
-            <textarea rows="4" readonly>{preview.secret_b64}</textarea>
+          <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.secretB64")}</div>
+          <div class="toolbar" style="margin-top: 8px">
+            <button onclick={() => {
+              if (!detailShowX25519Secret) {
+                if (!confirmSensitive("keys.ui.confirm.showSensitive")) return;
+              }
+              detailShowX25519Secret = !detailShowX25519Secret;
+            }}>
+              {detailShowX25519Secret ? $t("common.hide") : $t("common.show")}
+            </button>
+            <button onclick={async () => {
+              await copyField(detail?.x25519_secret_b64 ?? "", true);
+            }}>{$t("keys.ui.copy")}</button>
+          </div>
+          {#if detailShowX25519Secret}
+            <textarea rows="4" bind:value={detail.x25519_secret_b64}></textarea>
+          {/if}
+
+          <div class="help" style="margin-top: 8px">{$t("keys.ui.hints.x25519NeedFull")}</div>
+        {:else}
+          <div class="label">{$t("keys.ui.preview.publicPem")}</div>
+          <div class="toolbar" style="margin-top: 8px">
+            <button onclick={async () => {
+              await copyField(detail?.rsa_public_pem ?? "", false);
+            }}>{$t("keys.ui.copy")}</button>
+          </div>
+          <textarea rows="8" bind:value={detail.rsa_public_pem}></textarea>
+
+          <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.privatePem")}</div>
+          <div class="toolbar" style="margin-top: 8px">
+            <button onclick={() => {
+              if (!detailShowRsaPrivate) {
+                if (!confirmSensitive("keys.ui.confirm.showSensitive")) return;
+              }
+              detailShowRsaPrivate = !detailShowRsaPrivate;
+            }}>
+              {detailShowRsaPrivate ? $t("common.hide") : $t("common.show")}
+            </button>
+            <button onclick={async () => {
+              await copyField(detail?.rsa_private_pem ?? "", true);
+            }}>{$t("keys.ui.copy")}</button>
+          </div>
+          {#if detailShowRsaPrivate}
+            <textarea rows="10" bind:value={detail.rsa_private_pem}></textarea>
           {/if}
         {/if}
       {/if}
 
       <div class="toolbar" style="margin-top: 12px">
-        <button onclick={() => (showPreview = false)}>{$t("common.close")}</button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if showExport && exportEntry}
-  <div class="modal" role="presentation">
-    <div class="modal-inner" role="dialog" tabindex="-1" aria-modal="true" aria-label={$t("keys.ui.exportTitle")}>
-      <div class="modal-title">{$t("keys.ui.exportTitle")}</div>
-
-      <div class="label">{$t("common.name")}</div>
-      <div class="value">{exportEntry.label}</div>
-
-      <div class="divider" style="margin: 12px 0"></div>
-
-      <div class="label">{$t("keys.ui.exportFormat")}</div>
-      <select bind:value={exportFormat}>
-        {#each availableExportFormats(exportEntry) as f}
-          <option value={f.value}>{f.label}</option>
-        {/each}
-      </select>
-
-      <div class="toolbar" style="margin-top: 12px">
         <button class="primary" onclick={async () => {
           try {
-            await doExport();
+            await saveDetail();
           } catch (e) {
             message = formatError(e);
           }
-        }}>{$t("keys.ui.saveFile")}</button>
-        <button onclick={() => (showExport = false)}>{$t("common.cancel")}</button>
+        }}>{$t("common.ok")}</button>
+        <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
       </div>
     </div>
   </div>
@@ -654,19 +787,12 @@
     color: var(--muted);
   }
 
-  .actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
+  .clickable {
+    cursor: pointer;
   }
 
-  .icon {
-    width: 34px;
-    height: 34px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+  .clickable:hover td {
+    background: rgba(0, 0, 0, 0.03);
   }
 
   .modal {
@@ -698,10 +824,6 @@
     font-size: 12px;
     color: var(--muted);
     margin: 10px 0 6px;
-  }
-
-  .value {
-    font-size: 13px;
   }
 </style>
 

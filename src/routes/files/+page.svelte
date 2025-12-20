@@ -24,7 +24,8 @@
     <select disabled>
       <option>AES-256（流式）</option>
       <option>ChaCha20（流式）</option>
-      <option>RSA（混合加密 + 流式）</option>
+      <option>RSA2048（混合加密 + 流式）</option>
+      <option>RSA4096（混合加密 + 流式）</option>
       <option>X25519（混合加密 + 流式）</option>
     </select>
   </div>

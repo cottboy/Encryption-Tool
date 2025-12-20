@@ -33,11 +33,14 @@ pub fn run() {
             commands::keystore_set_lock,
             commands::keystore_list_entries,
             commands::keystore_get_key_preview,
+            commands::keystore_get_key_detail,
             // 密钥：生成/导入/导出/删除
             commands::keystore_generate_key,
             commands::keystore_import_key,
+            commands::keystore_import_key_manual,
             commands::keystore_export_key,
             commands::keystore_delete_key,
+            commands::keystore_update_key,
             // 文本加密/解密（后端执行）
             commands::text_encrypt,
             commands::text_decrypt,

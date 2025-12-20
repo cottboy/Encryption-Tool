@@ -83,6 +83,12 @@
       "enabledUnlocked": "Enabled (unlocked)",
       "enabledLocked": "Enabled (locked)",
       "disabled": "Disabled",
+      "detailTitle": "Key Details",
+      "copy": "Copy",
+      "confirm": {
+        "showSensitive": "This content is sensitive. Show it anyway?",
+        "copySensitive": "This content is sensitive. Copy it to clipboard anyway?"
+      },
       "actions": {
         "preview": "Preview key",
         "export": "Export key"
@@ -104,6 +110,24 @@
       "exportFormat": "Export format",
       "chooseFile": "Choose file…",
       "saveFile": "Save…",
+      "placeholders": {
+        "symmetricB64": "Enter a Base64-encoded 32-byte key…",
+        "x25519PublicB64": "Enter a Base64-encoded 32-byte public key… (optional)",
+        "x25519SecretB64": "Enter a Base64-encoded 32-byte private key… (optional)",
+        "rsaPublicPem": "Paste RSA public key PEM (optional)…",
+        "rsaPrivatePem": "Paste RSA private key PEM (optional)…"
+      },
+      "hints": {
+        "x25519NeedFull": "Note: X25519 requires both public and private keys to encrypt/decrypt."
+      },
+      "materialSuffix": {
+        "rsaPublicOnly": " (public only)",
+        "rsaPrivateOnly": " (private only)",
+        "rsaFull": " (full)",
+        "x25519PublicOnly": " (public only)",
+        "x25519SecretOnly": " (private only)",
+        "x25519Full": " (full)"
+      },
       "confirmDelete": "Delete this key?",
       "selectKeyFirst": "Select a key first.",
       "formats": {
@@ -124,6 +148,7 @@
         "nameRequired": "Please enter a key name"
       },
       "msg": {
+        "copied": "Copied to clipboard",
         "exported": "Exported: {path}"
       },
       "previewTitle": "Preview",
@@ -163,7 +188,9 @@
         "selectAlgorithm": "Please select an algorithm",
         "selectKey": "Please select a key",
         "inputRequired": "Please enter text",
-        "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA private key."
+        "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA key that includes a private key.",
+        "rsaNeedPublic": "RSA encryption requires a public key. Please select an RSA key that includes a public key.",
+        "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key."
       }
     }
   },

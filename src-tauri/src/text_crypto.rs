@@ -27,6 +27,23 @@ use zeroize::Zeroizing;
 
 use crate::keystore;
 
+/// 将“历史遗留的算法名”规范化成当前实现使用的算法名。
+///
+/// 说明：
+/// - 需求变更：原来的 `RSA` 改名为 `RSA2048`。
+/// - 为了兼容旧数据（旧 keystore / 旧密文容器），这里统一把 `RSA` 视为 `RSA2048`。
+fn normalize_algorithm_name(algo: &str) -> &str {
+    match algo.trim() {
+        "RSA" => "RSA2048",
+        other => other,
+    }
+}
+
+/// 判断是否属于 RSA 家族算法（RSA2048 / RSA4096 / 历史的 RSA）。
+fn is_rsa_family(algo: &str) -> bool {
+    matches!(normalize_algorithm_name(algo), "RSA2048" | "RSA4096")
+}
+
 /// 文本加密容器版本：将来结构变更可用它做兼容/迁移。
 const TEXT_CIPHER_VERSION: u32 = 1;
 
@@ -177,7 +194,12 @@ fn rsa_oaep_max_len(pub_key: &RsaPublicKey) -> usize {
 fn parse_rsa_public(entry: &keystore::KeyEntry) -> Result<RsaPublicKey, String> {
     match &entry.material {
         keystore::KeyMaterial::RsaPrivate { public_pem, .. } => {
-            RsaPublicKey::from_public_key_pem(public_pem).map_err(|e| format!("RSA 公钥解析失败：{e}"))
+            let pem = public_pem
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "RSA 加密需要公钥：该条目仅包含私钥".to_string())?;
+            RsaPublicKey::from_public_key_pem(pem).map_err(|e| format!("RSA 公钥解析失败：{e}"))
         }
         keystore::KeyMaterial::RsaPublic { public_pem } => {
             RsaPublicKey::from_public_key_pem(public_pem).map_err(|e| format!("RSA 公钥解析失败：{e}"))
@@ -200,6 +222,11 @@ fn parse_rsa_private(entry: &keystore::KeyEntry) -> Result<RsaPrivateKey, String
 fn parse_x25519_public(entry: &keystore::KeyEntry) -> Result<X25519PublicKey, String> {
     match &entry.material {
         keystore::KeyMaterial::X25519 { public_b64, .. } => {
+            let public_b64 = public_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "X25519 缺少公钥".to_string())?;
             let bytes = decode_b64_32("X25519 公钥", public_b64)?;
             Ok(X25519PublicKey::from(*bytes))
         }
@@ -211,10 +238,31 @@ fn parse_x25519_public(entry: &keystore::KeyEntry) -> Result<X25519PublicKey, St
 fn parse_x25519_secret(entry: &keystore::KeyEntry) -> Result<X25519StaticSecret, String> {
     match &entry.material {
         keystore::KeyMaterial::X25519 { secret_b64, .. } => {
+            let secret_b64 = secret_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| DECRYPT_FAIL_MSG.to_string())?;
             let bytes = decode_b64_32("X25519 私钥", secret_b64)?;
             Ok(X25519StaticSecret::from(*bytes))
         }
         _ => Err(DECRYPT_FAIL_MSG.to_string()),
+    }
+}
+
+/// X25519 能力检查：产品规则要求必须同时具备公钥+私钥才允许加/解密。
+fn ensure_x25519_full(entry: &keystore::KeyEntry) -> Result<(), String> {
+    match &entry.material {
+        keystore::KeyMaterial::X25519 { secret_b64, public_b64 } => {
+            let has_secret = secret_b64.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()).is_some();
+            let has_public = public_b64.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()).is_some();
+            if has_secret && has_public {
+                Ok(())
+            } else {
+                Err("X25519 加/解密需要同时包含公钥与私钥（当前条目不完整）".to_string())
+            }
+        }
+        _ => Err("密钥类型不匹配：需要 X25519".to_string()),
     }
 }
 
@@ -231,7 +279,7 @@ fn parse_symmetric_key(entry: &keystore::KeyEntry) -> Result<Zeroizing<[u8; 32]>
 /// - key_id：密钥库条目 id
 /// - input：明文（UTF-8 字符串）
 pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &str, input: &str) -> Result<TextEncryptResponse, String> {
-    let algo = algorithm.trim();
+    let algo = normalize_algorithm_name(algorithm.trim());
     let key_id = key_id.trim();
     if algo.is_empty() {
         return Err("请选择算法".to_string());
@@ -242,7 +290,8 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 
     // 找到密钥条目，并做“算法与密钥类型”匹配校验。
     let entry = find_entry(plain, key_id)?;
-    if entry.key_type != algo {
+    // 兼容旧数据：entry.key_type 可能还是 "RSA"
+    if normalize_algorithm_name(&entry.key_type) != algo {
         return Err("算法与密钥类型不匹配".to_string());
     }
 
@@ -267,7 +316,7 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
                 used_hybrid: false,
             })
         }
-        "RSA" => {
+        "RSA2048" | "RSA4096" => {
             // RSA：优先尝试 OAEP 直接加密；超长时自动切换为混合加密。
             let pub_key = parse_rsa_public(entry)?;
             let padding = Oaep::new::<Sha256>();
@@ -281,7 +330,7 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 
                 let payload = TextCipherPayload::RsaOaep {
                     v: TEXT_CIPHER_VERSION,
-                    alg: "RSA".to_string(),
+                    alg: algo.to_string(),
                     ciphertext_b64: B64.encode(ct),
                 };
 
@@ -307,7 +356,7 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 
                 let payload = TextCipherPayload::HybridRsa {
                     v: TEXT_CIPHER_VERSION,
-                    alg: "RSA".to_string(),
+                    alg: algo.to_string(),
                     data_alg: data_alg.to_string(),
                     nonce_b64: B64.encode(nonce),
                     wrapped_key_b64: B64.encode(wrapped),
@@ -325,6 +374,8 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             // - 生成临时密钥对（发送方）
             // - 与接收方公钥做 DH 得到共享密钥
             // - 用 HKDF 派生 32 字节会话密钥，再用 AEAD 加密正文
+            // 产品规则：X25519 必须“公钥+私钥”都齐全才允许加/解密。
+            ensure_x25519_full(entry)?;
             let recipient_pub = parse_x25519_public(entry)?;
 
             // 临时私钥（32 字节随机）+ 临时公钥（随 payload 输出）
@@ -371,7 +422,7 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 /// - key_id：密钥库条目 id
 /// - input：密文 JSON 字符串
 pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &str, input: &str) -> Result<TextDecryptResponse, String> {
-    let algo = algorithm.trim();
+    let algo = normalize_algorithm_name(algorithm.trim());
     let key_id = key_id.trim();
     if algo.is_empty() || key_id.is_empty() {
         return Err(DECRYPT_FAIL_MSG.to_string());
@@ -379,7 +430,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 
     // 先加载密钥，并做基础匹配（注意：解密错误不应泄露细节）。
     let entry = find_entry(plain, key_id).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-    if entry.key_type != algo {
+    if normalize_algorithm_name(&entry.key_type) != algo {
         return Err(DECRYPT_FAIL_MSG.to_string());
     }
 
@@ -420,7 +471,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             Ok(TextDecryptResponse { plaintext: out })
         }
         TextCipherPayload::RsaOaep { alg, ciphertext_b64, .. } => {
-            if alg != "RSA" || algo != "RSA" {
+            if !is_rsa_family(&alg) || !is_rsa_family(algo) || normalize_algorithm_name(&alg) != algo {
                 return Err(DECRYPT_FAIL_MSG.to_string());
             }
             let priv_key = parse_rsa_private(entry)?;
@@ -439,7 +490,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             ciphertext_b64,
             ..
         } => {
-            if alg != "RSA" || algo != "RSA" {
+            if !is_rsa_family(&alg) || !is_rsa_family(algo) || normalize_algorithm_name(&alg) != algo {
                 return Err(DECRYPT_FAIL_MSG.to_string());
             }
             let priv_key = parse_rsa_private(entry)?;
@@ -474,6 +525,9 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             if alg != "X25519" || algo != "X25519" {
                 return Err(DECRYPT_FAIL_MSG.to_string());
             }
+
+            // 产品规则：X25519 必须“公钥+私钥”都齐全才允许加/解密。
+            ensure_x25519_full(entry).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
 
             let secret = parse_x25519_secret(entry)?;
 

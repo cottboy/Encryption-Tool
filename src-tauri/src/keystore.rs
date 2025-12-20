@@ -66,14 +66,24 @@ pub enum KeyMaterial {
     /// 对称密钥（AES-256 / ChaCha20）：32 字节。
     Symmetric { key_b64: String },
 
-    /// RSA 私钥（PKCS8 PEM）+ 公钥（SPKI PEM）。
-    RsaPrivate { private_pem: String, public_pem: String },
+    /// RSA 私钥（PKCS8 PEM）。
+    ///
+    /// 说明：
+    /// - 为了支持“仅导入私钥”的场景，这里把 `public_pem` 设计为可选字段。
+    /// - 如果 `public_pem` 缺失，则在 UI/业务规则上视为“仅私钥”，只允许解密，不允许加密。
+    /// - 如果 `public_pem` 存在，则视为“完整”，允许加密+解密。
+    RsaPrivate { private_pem: String, public_pem: Option<String> },
 
     /// RSA 仅公钥（SPKI PEM）。
     RsaPublic { public_pem: String },
 
-    /// X25519 私钥（32 字节）+ 公钥（32 字节）。
-    X25519 { secret_b64: String, public_b64: String },
+    /// X25519 密钥材料：
+    ///
+    /// 说明：
+    /// - 需求变更：允许用户“只导入公钥”或“只导入私钥”。
+    /// - 由于产品规则要求：X25519 必须同时拥有公钥+私钥才允许加/解密，因此这两个字段都设计为可选。
+    /// - `secret_b64` / `public_b64` 的字节长度均要求为 32（Base64 解码后）。
+    X25519 { secret_b64: Option<String>, public_b64: Option<String> },
 }
 
 /// 单个密钥条目。
@@ -85,7 +95,9 @@ pub struct KeyEntry {
     /// 用户可读名称。
     pub label: String,
 
-    /// 密钥类型（例如 AES-256 / ChaCha20 / RSA / X25519）。
+    /// 密钥类型（例如 AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519）。
+    ///
+    /// 兼容：历史版本可能仍写入 "RSA"，在业务逻辑中会视为 "RSA2048"。
     pub key_type: String,
 
     /// 密钥材料。

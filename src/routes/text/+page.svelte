@@ -112,11 +112,65 @@
     return entries.filter((e) => e.key_type === selectedAlgorithm);
   }
 
-  // RSA：如果用户选择的是“仅公钥”，则无法解密（解密需要私钥）。
-  function canDecryptWithSelectedKey(): boolean {
-    if (selectedAlgorithm !== "RSA") return true;
+  function isRsaFamily(algo: string): boolean {
+    // 兼容：历史的 RSA 视为 RSA2048
+    return algo === "RSA2048" || algo === "RSA4096" || algo === "RSA";
+  }
+
+  // 能力检查：根据算法 + 材料类型决定是否允许加密/解密。
+  // - RSA：
+  //   - 仅公钥：只能加密
+  //   - 仅私钥：只能解密
+  //   - 完整：加密+解密
+  // - X25519：产品规则要求必须同时具备公钥+私钥才允许加/解密
+  function canEncryptWithSelectedKey(): boolean {
     const entry = entries.find((e) => e.id === selectedKeyId);
-    return entry?.material_kind === "rsa_private";
+    if (!entry) return false;
+
+    if (selectedAlgorithm === "X25519") {
+      return entry.material_kind === "x25519_full";
+    }
+
+    if (isRsaFamily(selectedAlgorithm)) {
+      return entry.material_kind === "rsa_public_only" || entry.material_kind === "rsa_full";
+    }
+
+    return true;
+  }
+
+  function canDecryptWithSelectedKey(): boolean {
+    const entry = entries.find((e) => e.id === selectedKeyId);
+    if (!entry) return false;
+
+    if (selectedAlgorithm === "X25519") {
+      return entry.material_kind === "x25519_full";
+    }
+
+    if (isRsaFamily(selectedAlgorithm)) {
+      return entry.material_kind === "rsa_private_only" || entry.material_kind === "rsa_full";
+    }
+
+    return true;
+  }
+
+  function typeSuffix(materialKind: string): string {
+    // 复用“密钥管理页”的后缀文案，保证全局一致。
+    switch (materialKind) {
+      case "rsa_public_only":
+        return $t("keys.ui.materialSuffix.rsaPublicOnly");
+      case "rsa_private_only":
+        return $t("keys.ui.materialSuffix.rsaPrivateOnly");
+      case "rsa_full":
+        return $t("keys.ui.materialSuffix.rsaFull");
+      case "x25519_public_only":
+        return $t("keys.ui.materialSuffix.x25519PublicOnly");
+      case "x25519_secret_only":
+        return $t("keys.ui.materialSuffix.x25519SecretOnly");
+      case "x25519_full":
+        return $t("keys.ui.materialSuffix.x25519Full");
+      default:
+        return "";
+    }
   }
 
   // 选择算法后，清空之前的密钥选择（避免残留不匹配的 id）。
@@ -177,6 +231,16 @@
       message = $t("text.ui.errors.selectKey");
       return;
     }
+    if (!canEncryptWithSelectedKey()) {
+      if (selectedAlgorithm === "X25519") {
+        message = $t("text.ui.errors.x25519NeedFull");
+      } else if (isRsaFamily(selectedAlgorithm)) {
+        message = $t("text.ui.errors.rsaNeedPublic");
+      } else {
+        message = $t("text.ui.errors.selectKey");
+      }
+      return;
+    }
     if (!inputText.trim()) {
       message = $t("text.ui.errors.inputRequired");
       return;
@@ -195,7 +259,7 @@
       outputText = res.ciphertext;
 
       // RSA：明文超长时后端会自动混合加密，这里给一个明确提示。
-      if (selectedAlgorithm === "RSA" && res.used_hybrid) {
+      if (isRsaFamily(selectedAlgorithm) && res.used_hybrid) {
         message = $t("text.ui.msg.rsaHybrid");
       }
     } catch (e) {
@@ -224,7 +288,13 @@
       return;
     }
     if (!canDecryptWithSelectedKey()) {
-      message = $t("text.ui.errors.rsaNeedPrivate");
+      if (selectedAlgorithm === "X25519") {
+        message = $t("text.ui.errors.x25519NeedFull");
+      } else if (isRsaFamily(selectedAlgorithm)) {
+        message = $t("text.ui.errors.rsaNeedPrivate");
+      } else {
+        message = $t("text.ui.errors.selectKey");
+      }
       return;
     }
     if (!inputText.trim()) {
@@ -252,13 +322,10 @@
   }
 
   function keyOptionLabel(e: KeyEntryPublic): string {
-    // RSA 的公钥/私钥需要在下拉中区分，否则用户容易选错导致“不能解密”。
-    if (e.key_type === "RSA") {
-      return e.material_kind === "rsa_public"
-        ? `${e.label} ${$t("text.ui.keyHint.rsaPublic")}`
-        : `${e.label} ${$t("text.ui.keyHint.rsaPrivate")}`;
+    // 下拉选项附带“仅公钥/仅私钥/完整”，减少用户选错。
+    if (e.material_kind !== "symmetric") {
+      return `${e.label} ${typeSuffix(e.material_kind)}`;
     }
-
     return e.label;
   }
 </script>

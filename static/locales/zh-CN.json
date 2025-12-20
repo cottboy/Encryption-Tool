@@ -83,6 +83,12 @@
       "enabledUnlocked": "已启用（已解锁）",
       "enabledLocked": "已启用（未解锁）",
       "disabled": "未启用",
+      "detailTitle": "密钥详情",
+      "copy": "复制",
+      "confirm": {
+        "showSensitive": "该内容包含敏感信息，确定要显示吗？",
+        "copySensitive": "该内容包含敏感信息，确定要复制到剪贴板吗？"
+      },
       "actions": {
         "preview": "预览密钥",
         "export": "导出密钥"
@@ -104,6 +110,24 @@
       "exportFormat": "导出格式",
       "chooseFile": "选择文件…",
       "saveFile": "保存…",
+      "placeholders": {
+        "symmetricB64": "请输入 Base64 编码的 32 字节密钥…",
+        "x25519PublicB64": "请输入 Base64 编码的 32 字节公钥…（可选）",
+        "x25519SecretB64": "请输入 Base64 编码的 32 字节私钥…（可选）",
+        "rsaPublicPem": "粘贴 RSA 公钥 PEM（可选）…",
+        "rsaPrivatePem": "粘贴 RSA 私钥 PEM（可选）…"
+      },
+      "hints": {
+        "x25519NeedFull": "提示：X25519 需要同时包含公钥和私钥才能用于加密/解密。"
+      },
+      "materialSuffix": {
+        "rsaPublicOnly": "仅公钥",
+        "rsaPrivateOnly": "仅私钥",
+        "rsaFull": "完整",
+        "x25519PublicOnly": "仅公钥",
+        "x25519SecretOnly": "仅私钥",
+        "x25519Full": "完整"
+      },
       "confirmDelete": "确定删除该密钥吗？",
       "selectKeyFirst": "请先在左侧选择一个密钥。",
       "formats": {
@@ -124,6 +148,7 @@
         "nameRequired": "请输入密钥名称"
       },
       "msg": {
+        "copied": "已复制到剪贴板",
         "exported": "已导出到：{path}"
       },
       "previewTitle": "预览",
@@ -163,7 +188,9 @@
         "selectAlgorithm": "请选择算法",
         "selectKey": "请选择密钥",
         "inputRequired": "请输入要处理的文本",
-        "rsaNeedPrivate": "RSA 解密需要私钥，请选择“私钥”类型的 RSA 密钥"
+        "rsaNeedPrivate": "RSA 解密需要私钥，请选择包含私钥的 RSA 密钥",
+        "rsaNeedPublic": "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥",
+        "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥"
       }
     }
   },

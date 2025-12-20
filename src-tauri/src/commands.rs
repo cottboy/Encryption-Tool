@@ -17,6 +17,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding};
+use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -51,7 +52,9 @@ pub struct SupportedAlgorithms {
 pub fn get_supported_algorithms() -> SupportedAlgorithms {
     SupportedAlgorithms {
         symmetric: vec!["AES-256", "ChaCha20"],
-        asymmetric: vec!["RSA", "X25519"],
+        // 非对称算法：
+        // - 需求变更：原来的 RSA 改名为 RSA2048，并新增 RSA4096（逻辑保持一致，仅密钥长度不同）。
+        asymmetric: vec!["RSA2048", "RSA4096", "X25519"],
     }
 }
 
@@ -72,11 +75,68 @@ pub struct KeyEntryPublic {
     pub key_type: String,
 
     /// 材料类型：用于前端决定“可预览/可导出”的具体格式。
-    /// - symmetric：对称密钥
-    /// - rsa_private：RSA 私钥（含公钥）
-    /// - rsa_public：RSA 公钥
-    /// - x25519：X25519 私钥（含公钥）
+    ///
+    /// 需求变更：前端需要在列表中展示“仅公钥/仅私钥/完整”等状态，因此这里更细分：
+    /// - symmetric
+    /// - rsa_public_only / rsa_private_only / rsa_full
+    /// - x25519_public_only / x25519_secret_only / x25519_full
     pub material_kind: String,
+}
+
+/// 将“历史遗留的算法名”规范化为当前 UI 使用的算法名。
+///
+/// 说明：
+/// - 需求变更要求把原来的 `RSA` 改名为 `RSA2048`。
+/// - 为了不让旧 keystore 里的条目在新 UI 中“消失”（筛选条件是 key_type 相等），
+///   这里在返回给前端时做一次归一化。
+fn normalize_key_type_for_ui(key_type: &str) -> String {
+    match key_type.trim() {
+        "RSA" => "RSA2048".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// 将 keystore 明文数据中的“旧算法名”原地升级为新算法名。
+///
+/// 说明：
+/// - 我们不在读取时强制写回磁盘（避免无意义的 IO）。
+/// - 但在任何“写操作”发生时，顺手把旧数据规范化，这样用户的 keystore 会逐步被升级。
+fn normalize_key_type_in_place(plain: &mut keystore::KeyStorePlain) {
+    for e in &mut plain.key_entries {
+        if e.key_type.trim() == "RSA" {
+            e.key_type = "RSA2048".to_string();
+        }
+    }
+}
+
+/// 根据条目的材料，计算一个更细粒度的 `material_kind` 给前端做展示/能力判断。
+///
+/// 约定：
+/// - symmetric
+/// - rsa_public_only / rsa_private_only / rsa_full
+/// - x25519_public_only / x25519_secret_only / x25519_full
+fn material_kind_for_entry(entry: &keystore::KeyEntry) -> String {
+    match &entry.material {
+        keystore::KeyMaterial::Symmetric { .. } => "symmetric".to_string(),
+        keystore::KeyMaterial::RsaPublic { .. } => "rsa_public_only".to_string(),
+        keystore::KeyMaterial::RsaPrivate { public_pem, .. } => {
+            if public_pem.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()).is_some() {
+                "rsa_full".to_string()
+            } else {
+                "rsa_private_only".to_string()
+            }
+        }
+        keystore::KeyMaterial::X25519 { secret_b64, public_b64 } => {
+            let has_secret = secret_b64.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()).is_some();
+            let has_public = public_b64.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()).is_some();
+            match (has_public, has_secret) {
+                (true, true) => "x25519_full".to_string(),
+                (true, false) => "x25519_public_only".to_string(),
+                (false, true) => "x25519_secret_only".to_string(),
+                (false, false) => "x25519_secret_only".to_string(), // 防御：不应出现，两者都缺失按“缺失”处理
+            }
+        }
+    }
 }
 /// 获取密钥库状态：
 /// - 若首次启动没有密钥库文件，会自动创建一个明文空库。
@@ -217,18 +277,13 @@ pub fn keystore_list_entries(app: AppHandle, state: State<'_, AppState>) -> Resu
         .key_entries
         .iter()
         .map(|e| {
-            let material_kind = match &e.material {
-                keystore::KeyMaterial::Symmetric { .. } => "symmetric",
-                keystore::KeyMaterial::RsaPrivate { .. } => "rsa_private",
-                keystore::KeyMaterial::RsaPublic { .. } => "rsa_public",
-                keystore::KeyMaterial::X25519 { .. } => "x25519",
-            }
-            .to_string();
+            let material_kind = material_kind_for_entry(e);
 
             KeyEntryPublic {
                 id: e.id.clone(),
                 label: e.label.clone(),
-                key_type: e.key_type.clone(),
+                // 兼容旧数据：把 RSA 归一化成 RSA2048，避免前端筛选不到。
+                key_type: normalize_key_type_for_ui(&e.key_type),
                 material_kind,
             }
         })
@@ -265,6 +320,9 @@ pub fn keystore_generate_key(
         .to_string();
 
     with_plain_mutation(&app, &state, |plain| {
+        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
+        normalize_key_type_in_place(plain);
+
         let id = keystore::generate_entry_id();
 
         let entry_label = if label.is_empty() {
@@ -273,6 +331,10 @@ pub fn keystore_generate_key(
             label
         };
 
+        // 生成密钥：
+        // - 对称：随机 32 字节
+        // - X25519：随机 32 字节私钥 + 对应公钥
+        // - RSA：按位数生成（2048/4096）
         let entry = match key_type {
             "AES-256" | "ChaCha20" => {
                 let mut key = [0u8; 32];
@@ -298,12 +360,24 @@ pub fn keystore_generate_key(
                     id: id.clone(),
                     label: entry_label.clone(),
                     key_type: "X25519".to_string(),
-                    material: keystore::KeyMaterial::X25519 { secret_b64, public_b64 },
+                    material: keystore::KeyMaterial::X25519 {
+                        secret_b64: Some(secret_b64),
+                        public_b64: Some(public_b64),
+                    },
                 }
             }
-            "RSA" => {
-                // RSA 参数：先用 2048 位，兼顾安全性与性能。
-                let private = RsaPrivateKey::new(&mut OsRng, 2048)
+            "RSA" | "RSA2048" | "RSA4096" => {
+                // RSA 参数：
+                // - 需求变更：原 RSA 改名为 RSA2048；新增 RSA4096。
+                // - 逻辑保持不变，仅密钥位数不同。
+                let bits = match key_type {
+                    "RSA4096" => 4096,
+                    _ => 2048,
+                };
+
+                let normalized = if key_type == "RSA" { "RSA2048" } else { key_type };
+
+                let private = RsaPrivateKey::new(&mut OsRng, bits)
                     .map_err(|e| format!("RSA 生成失败：{e}"))?;
                 let public = RsaPublicKey::from(&private);
 
@@ -320,8 +394,11 @@ pub fn keystore_generate_key(
                 keystore::KeyEntry {
                     id: id.clone(),
                     label: entry_label.clone(),
-                    key_type: "RSA".to_string(),
-                    material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem },
+                    key_type: normalized.to_string(),
+                    material: keystore::KeyMaterial::RsaPrivate {
+                        private_pem,
+                        public_pem: Some(public_pem),
+                    },
                 }
             }
             _ => return Err(format!("不支持的 key_type：{key_type}")),
@@ -330,17 +407,17 @@ pub fn keystore_generate_key(
         plain.key_entries.push(entry);
 
         // 返回给前端的“公共信息”，不包含任何敏感材料。
-        // material_kind 用于 UI 决定导出/预览可用的格式。
-        let material_kind = match key_type {
-            "RSA" => "rsa_private".to_string(),
-            "X25519" => "x25519".to_string(),
-            _ => "symmetric".to_string(),
-        };
+        // material_kind 用于 UI 展示“仅公钥/仅私钥/完整”等状态。
+        let last = plain
+            .key_entries
+            .last()
+            .ok_or_else(|| "内部错误：生成后未找到条目".to_string())?;
+        let material_kind = material_kind_for_entry(last);
 
         Ok(KeyEntryPublic {
             id,
             label: entry_label.clone(),
-            key_type: key_type.to_string(),
+            key_type: normalize_key_type_for_ui(key_type),
             material_kind,
         })
     })
@@ -371,6 +448,9 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
     let text = String::from_utf8_lossy(&bytes).to_string();
 
     with_plain_mutation(&app, &state, |plain| {
+        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
+        normalize_key_type_in_place(plain);
+
         let id = keystore::generate_entry_id();
 
         let entry_label = if label.is_empty() {
@@ -398,35 +478,64 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
             }
             "X25519" => {
                 // 优先尝试 JSON（我们自己的导出格式）。
+                //
+                // 需求变更：允许只导入公钥或只导入私钥，因此字段都为可选。
                 #[derive(Deserialize)]
                 struct X25519Json {
-                    secret_b64: String,                }
+                    secret_b64: Option<String>,
+                    public_b64: Option<String>,
+                }
 
-                let maybe_json: Result<X25519Json, _> = serde_json::from_str(text.trim());
-                let secret_bytes: [u8; 32] = if let Ok(j) = maybe_json {
-                    let secret = base64::engine::general_purpose::STANDARD
-                        .decode(j.secret_b64.as_bytes())
-                        .map_err(|e| format!("X25519 secret_b64 解码失败：{e}"))?;
-                    if secret.len() != 32 {
-                        return Err("X25519 私钥必须为 32 字节".to_string());
-                    }
-                    secret.as_slice().try_into().map_err(|_| "X25519 私钥长度错误".to_string())?
+                let trimmed = text.trim();
+                let maybe_json: Result<X25519Json, _> = serde_json::from_str(trimmed);
+
+                // 兼容旧行为：如果不是 JSON，则将其视为“Base64 编码的 32 字节私钥”。
+                let (secret_b64, public_b64) = if let Ok(j) = maybe_json {
+                    (j.secret_b64.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                     j.public_b64.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
                 } else {
-                    // 退化：允许用户直接导入“Base64 编码的 32 字节私钥”。
+                    (Some(trimmed.to_string()), None)
+                };
+
+                if secret_b64.is_none() && public_b64.is_none() {
+                    return Err("X25519 至少需要导入公钥或私钥".to_string());
+                }
+
+                // 基础校验：Base64 解码后必须为 32 字节。
+                if let Some(s) = &secret_b64 {
                     let secret = base64::engine::general_purpose::STANDARD
-                        .decode(text.trim().as_bytes())
-                        .map_err(|e| format!("X25519 Base64 解码失败：{e}"))?;
+                        .decode(s.as_bytes())
+                        .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?;
                     if secret.len() != 32 {
                         return Err("X25519 私钥必须为 32 字节（Base64 解码后）".to_string());
                     }
-                    secret.as_slice().try_into().map_err(|_| "X25519 私钥长度错误".to_string())?
-                };
+                }
+                if let Some(s) = &public_b64 {
+                    let public = base64::engine::general_purpose::STANDARD
+                        .decode(s.as_bytes())
+                        .map_err(|e| format!("X25519 公钥 Base64 解码失败：{e}"))?;
+                    if public.len() != 32 {
+                        return Err("X25519 公钥必须为 32 字节（Base64 解码后）".to_string());
+                    }
+                }
 
-                let secret = X25519StaticSecret::from(secret_bytes);
-                let public = X25519PublicKey::from(&secret);
+                // 如果用户同时给了私钥+公钥，做一次一致性校验，避免存进“对不上的一对”。
+                if let (Some(secret_s), Some(public_s)) = (&secret_b64, &public_b64) {
+                    let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                        .decode(secret_s.as_bytes())
+                        .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| "X25519 私钥长度错误".to_string())?;
 
-                let secret_b64 = base64::engine::general_purpose::STANDARD.encode(secret_bytes);
-                let public_b64 = base64::engine::general_purpose::STANDARD.encode(public.as_bytes());
+                    let public_expect = X25519PublicKey::from(&X25519StaticSecret::from(secret_bytes));
+                    let public_expect_b64 = base64::engine::general_purpose::STANDARD.encode(public_expect.as_bytes());
+
+                    // 这里不做“自动修正”，而是提示用户输入不匹配，避免产生误解。
+                    if public_expect_b64.trim() != public_s.trim() {
+                        return Err("X25519 公钥与私钥不匹配".to_string());
+                    }
+                }
 
                 keystore::KeyEntry {
                     id: id.clone(),
@@ -435,49 +544,65 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
                     material: keystore::KeyMaterial::X25519 { secret_b64, public_b64 },
                 }
             }
-            "RSA" => {
+            "RSA" | "RSA2048" | "RSA4096" => {
+                // RSA 导入（文件方式）：
+                // - 兼容：既支持私钥 PEM，也支持公钥 PEM。
+                // - 需求变更：允许“仅公钥/仅私钥”。为了可控，这里不自动从私钥推导公钥。
+                let bits_expected = match key_type {
+                    "RSA4096" => Some(4096),
+                    // 历史兼容：RSA 视为 RSA2048
+                    "RSA" | "RSA2048" => Some(2048),
+                    _ => None,
+                };
+
                 let trimmed = text.trim();
 
                 // 先尝试 PKCS8 私钥。
                 if let Ok(private) = RsaPrivateKey::from_pkcs8_pem(trimmed) {
-                    let public = RsaPublicKey::from(&private);
+                    // 位数校验（可选）：避免用户把 2048 的材料导入成 RSA4096 之类的“挂羊头卖狗肉”。
+                    if let Some(bits) = bits_expected {
+                        if private.n().bits() as usize != bits {
+                            return Err(format!("RSA 密钥位数不匹配：期望 {bits}，实际 {}", private.n().bits()));
+                        }
+                    }
                     let private_pem = private
                         .to_pkcs8_pem(LineEnding::LF)
                         .map_err(|e| format!("RSA 私钥导出失败：{e}"))?
-                        .to_string();
-                    let public_pem = public
-                        .to_public_key_pem(LineEnding::LF)
-                        .map_err(|e| format!("RSA 公钥导出失败：{e}"))?
                         .to_string();
 
                     keystore::KeyEntry {
                         id: id.clone(),
                         label: entry_label.clone(),
-                        key_type: "RSA".to_string(),
-                        material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem },
+                        key_type: normalize_key_type_for_ui(key_type),
+                        material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem: None },
                     }
                 }
                 // 再尝试 PKCS1 私钥（BEGIN RSA PRIVATE KEY）。
                 else if let Ok(private) = RsaPrivateKey::from_pkcs1_pem(trimmed) {
-                    let public = RsaPublicKey::from(&private);
+                    if let Some(bits) = bits_expected {
+                        if private.n().bits() as usize != bits {
+                            return Err(format!("RSA 密钥位数不匹配：期望 {bits}，实际 {}", private.n().bits()));
+                        }
+                    }
                     let private_pem = private
                         .to_pkcs8_pem(LineEnding::LF)
                         .map_err(|e| format!("RSA 私钥导出失败：{e}"))?
                         .to_string();
-                    let public_pem = public
-                        .to_public_key_pem(LineEnding::LF)
-                        .map_err(|e| format!("RSA 公钥导出失败：{e}"))?
-                        .to_string();
 
                     keystore::KeyEntry {
                         id: id.clone(),
                         label: entry_label.clone(),
-                        key_type: "RSA".to_string(),
-                        material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem },
+                        key_type: normalize_key_type_for_ui(key_type),
+                        material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem: None },
                     }
                 }
                 // 最后尝试公钥（BEGIN PUBLIC KEY）。
                 else if let Ok(public) = RsaPublicKey::from_public_key_pem(trimmed) {
+                    if let Some(bits) = bits_expected {
+                        if public.n().bits() as usize != bits {
+                            return Err(format!("RSA 密钥位数不匹配：期望 {bits}，实际 {}", public.n().bits()));
+                        }
+                    }
                     let public_pem = public
                         .to_public_key_pem(LineEnding::LF)
                         .map_err(|e| format!("RSA 公钥导出失败：{e}"))?
@@ -486,7 +611,7 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
                     keystore::KeyEntry {
                         id: id.clone(),
                         label: entry_label.clone(),
-                        key_type: "RSA".to_string(),
+                        key_type: normalize_key_type_for_ui(key_type),
                         material: keystore::KeyMaterial::RsaPublic { public_pem },
                     }
                 } else {
@@ -498,7 +623,17 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
 
         plain.key_entries.push(entry);
 
-        Ok(KeyEntryPublic { id, label: entry_label.clone(), key_type: key_type.to_string(), material_kind: match key_type { "RSA" => "rsa_private".to_string(), "X25519" => "x25519".to_string(), _ => "symmetric".to_string() } })
+        let last = plain
+            .key_entries
+            .last()
+            .ok_or_else(|| "内部错误：导入后未找到条目".to_string())?;
+
+        Ok(KeyEntryPublic {
+            id,
+            label: entry_label.clone(),
+            key_type: normalize_key_type_for_ui(key_type),
+            material_kind: material_kind_for_entry(last),
+        })
     })
 }
 
@@ -533,19 +668,27 @@ pub fn keystore_export_key(app: AppHandle, state: State<'_, AppState>, req: Expo
         ("AES-256" | "ChaCha20", keystore::KeyMaterial::Symmetric { key_b64 }, "key_b64") => {
             key_b64.clone()
         }
-        ("RSA", keystore::KeyMaterial::RsaPrivate { private_pem, .. }, "private_pem") => private_pem.clone(),
-        ("RSA", keystore::KeyMaterial::RsaPrivate { public_pem, .. }, "public_pem") => public_pem.clone(),
-        ("RSA", keystore::KeyMaterial::RsaPublic { public_pem }, "public_pem") => public_pem.clone(),
-        ("X25519", keystore::KeyMaterial::X25519 { public_b64, .. }, "public_b64") => public_b64.clone(),
+        ("RSA" | "RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { private_pem, .. }, "private_pem") => private_pem.clone(),
+        ("RSA" | "RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { public_pem, .. }, "public_pem") => {
+            public_pem
+                .clone()
+                .ok_or_else(|| "该 RSA 条目缺少公钥，无法导出公钥".to_string())?
+        }
+        ("RSA" | "RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPublic { public_pem }, "public_pem") => public_pem.clone(),
+        ("X25519", keystore::KeyMaterial::X25519 { public_b64, .. }, "public_b64") => {
+            public_b64
+                .clone()
+                .ok_or_else(|| "该 X25519 条目缺少公钥，无法导出公钥".to_string())?
+        }
         ("X25519", keystore::KeyMaterial::X25519 { secret_b64, public_b64 }, "json") => {
             #[derive(Serialize)]
             struct X25519Export<'a> {
-                secret_b64: &'a str,
-                public_b64: &'a str,
+                secret_b64: Option<&'a str>,
+                public_b64: Option<&'a str>,
             }
             serde_json::to_string_pretty(&X25519Export {
-                secret_b64,
-                public_b64,
+                secret_b64: secret_b64.as_deref(),
+                public_b64: public_b64.as_deref(),
             })
             .map_err(|e| format!("JSON 序列化失败：{e}"))?
         }
@@ -715,13 +858,13 @@ pub enum KeyPreview {
     Rsa {
         label: String,
         material_kind: String,
-        public_pem: String,
+        public_pem: Option<String>,
         private_pem: Option<String>,
     },
     X25519 {
         label: String,
-        public_b64: String,
-        secret_b64: String,
+        public_b64: Option<String>,
+        secret_b64: Option<String>,
     },
 }
 
@@ -743,19 +886,19 @@ pub fn keystore_get_key_preview(app: AppHandle, state: State<'_, AppState>, req:
     match &entry.material {
         keystore::KeyMaterial::Symmetric { key_b64 } => Ok(KeyPreview::Symmetric {
             label: entry.label.clone(),
-            algorithm: entry.key_type.clone(),
+            algorithm: normalize_key_type_for_ui(&entry.key_type),
             key_b64: key_b64.clone(),
         }),
         keystore::KeyMaterial::RsaPrivate { private_pem, public_pem } => Ok(KeyPreview::Rsa {
             label: entry.label.clone(),
-            material_kind: "rsa_private".to_string(),
+            material_kind: material_kind_for_entry(entry),
             public_pem: public_pem.clone(),
             private_pem: Some(private_pem.clone()),
         }),
         keystore::KeyMaterial::RsaPublic { public_pem } => Ok(KeyPreview::Rsa {
             label: entry.label.clone(),
-            material_kind: "rsa_public".to_string(),
-            public_pem: public_pem.clone(),
+            material_kind: material_kind_for_entry(entry),
+            public_pem: Some(public_pem.clone()),
             private_pem: None,
         }),
         keystore::KeyMaterial::X25519 { secret_b64, public_b64 } => Ok(KeyPreview::X25519 {
@@ -767,13 +910,353 @@ pub fn keystore_get_key_preview(app: AppHandle, state: State<'_, AppState>, req:
 }
 
 // =====================
+// 密钥详情：读取/编辑/手动导入
+// =====================
+
+/// 给前端“密钥详情弹窗”使用的结构：
+/// - 需要包含敏感材料（用于展示/复制/编辑），因此只在后端读取并返回。
+/// - 前端渲染时需要默认隐藏敏感字段，并对“显示/复制”做二次确认（由前端控制）。
+#[derive(Debug, Serialize)]
+pub struct KeyDetail {
+    pub id: String,
+    pub label: String,
+    pub key_type: String,
+    pub material_kind: String,
+
+    pub symmetric_key_b64: Option<String>,
+
+    pub rsa_public_pem: Option<String>,
+    pub rsa_private_pem: Option<String>,
+
+    pub x25519_public_b64: Option<String>,
+    pub x25519_secret_b64: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetKeyDetailRequest {
+    pub id: String,
+}
+
+#[tauri::command]
+pub fn keystore_get_key_detail(app: AppHandle, state: State<'_, AppState>, req: GetKeyDetailRequest) -> Result<KeyDetail, String> {
+    let id = req.id.trim();
+    if id.is_empty() {
+        return Err("id 不能为空".to_string());
+    }
+
+    let plain = load_plain_for_read(&app, &state)?;
+    let entry = keystore::find_entry(&plain, id).ok_or_else(|| "未找到该密钥".to_string())?;
+
+    let mut out = KeyDetail {
+        id: entry.id.clone(),
+        label: entry.label.clone(),
+        key_type: normalize_key_type_for_ui(&entry.key_type),
+        material_kind: material_kind_for_entry(entry),
+        symmetric_key_b64: None,
+        rsa_public_pem: None,
+        rsa_private_pem: None,
+        x25519_public_b64: None,
+        x25519_secret_b64: None,
+    };
+
+    match &entry.material {
+        keystore::KeyMaterial::Symmetric { key_b64 } => {
+            out.symmetric_key_b64 = Some(key_b64.clone());
+        }
+        keystore::KeyMaterial::RsaPublic { public_pem } => {
+            out.rsa_public_pem = Some(public_pem.clone());
+        }
+        keystore::KeyMaterial::RsaPrivate { private_pem, public_pem } => {
+            out.rsa_private_pem = Some(private_pem.clone());
+            out.rsa_public_pem = public_pem.clone();
+        }
+        keystore::KeyMaterial::X25519 { secret_b64, public_b64 } => {
+            out.x25519_secret_b64 = secret_b64.clone();
+            out.x25519_public_b64 = public_b64.clone();
+        }
+    }
+
+    Ok(out)
+}
+
+/// 前端“手动导入/编辑保存”用的请求：
+/// - 对称：symmetric_key_b64 必填
+/// - RSA：rsa_public_pem / rsa_private_pem 至少一个
+/// - X25519：x25519_public_b64 / x25519_secret_b64 至少一个
+#[derive(Debug, Deserialize)]
+pub struct UpsertKeyRequest {
+    pub key_type: String,
+    pub label: String,
+
+    pub symmetric_key_b64: Option<String>,
+
+    pub rsa_public_pem: Option<String>,
+    pub rsa_private_pem: Option<String>,
+
+    pub x25519_public_b64: Option<String>,
+    pub x25519_secret_b64: Option<String>,
+}
+
+/// 根据 UI 输入构造一个 `KeyMaterial`，并做基础校验。
+///
+/// 注意：
+/// - 这里遵循产品规则：
+///   - RSA：允许“仅公钥/仅私钥/完整”。
+///   - X25519：允许“仅公钥/仅私钥/完整”，但缺失任意一项时不允许加/解密（能力限制在 text_crypto 中统一检查）。
+fn build_material_from_upsert(req: &UpsertKeyRequest) -> Result<(String, keystore::KeyMaterial), String> {
+    let key_type_raw = req.key_type.trim();
+    if key_type_raw.is_empty() {
+        return Err("key_type 不能为空".to_string());
+    }
+
+    // 兼容旧值：RSA 视为 RSA2048
+    let key_type = if key_type_raw == "RSA" { "RSA2048" } else { key_type_raw };
+
+    match key_type {
+        "AES-256" | "ChaCha20" => {
+            let key_b64 = req
+                .symmetric_key_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "请输入对称密钥（Base64）".to_string())?;
+
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(key_b64.as_bytes())
+                .map_err(|e| format!("Base64 解码失败：{e}"))?;
+            if decoded.len() != 32 {
+                return Err("对称密钥长度必须为 32 字节（Base64 解码后）".to_string());
+            }
+            let normalized_b64 = base64::engine::general_purpose::STANDARD.encode(decoded);
+
+            Ok((key_type.to_string(), keystore::KeyMaterial::Symmetric { key_b64: normalized_b64 }))
+        }
+        "X25519" => {
+            let secret_b64 = req
+                .x25519_secret_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string());
+            let public_b64 = req
+                .x25519_public_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string());
+
+            if secret_b64.is_none() && public_b64.is_none() {
+                return Err("X25519 至少需要填写公钥或私钥".to_string());
+            }
+
+            if let Some(s) = &secret_b64 {
+                let secret = base64::engine::general_purpose::STANDARD
+                    .decode(s.as_bytes())
+                    .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?;
+                if secret.len() != 32 {
+                    return Err("X25519 私钥必须为 32 字节（Base64 解码后）".to_string());
+                }
+            }
+            if let Some(s) = &public_b64 {
+                let public = base64::engine::general_purpose::STANDARD
+                    .decode(s.as_bytes())
+                    .map_err(|e| format!("X25519 公钥 Base64 解码失败：{e}"))?;
+                if public.len() != 32 {
+                    return Err("X25519 公钥必须为 32 字节（Base64 解码后）".to_string());
+                }
+            }
+
+            // 若两者都填了，则校验一致性（不做自动推导/修正）。
+            if let (Some(secret_s), Some(public_s)) = (&secret_b64, &public_b64) {
+                let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
+                    .decode(secret_s.as_bytes())
+                    .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| "X25519 私钥长度错误".to_string())?;
+
+                let public_expect = X25519PublicKey::from(&X25519StaticSecret::from(secret_bytes));
+                let public_expect_b64 = base64::engine::general_purpose::STANDARD.encode(public_expect.as_bytes());
+                if public_expect_b64.trim() != public_s.trim() {
+                    return Err("X25519 公钥与私钥不匹配".to_string());
+                }
+            }
+
+            Ok((
+                "X25519".to_string(),
+                keystore::KeyMaterial::X25519 {
+                    secret_b64,
+                    public_b64,
+                },
+            ))
+        }
+        "RSA2048" | "RSA4096" => {
+            let bits_expected = if key_type == "RSA4096" { 4096 } else { 2048 };
+
+            let private_in = req
+                .rsa_private_pem
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+            let public_in = req
+                .rsa_public_pem
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+
+            if private_in.is_none() && public_in.is_none() {
+                return Err("RSA 至少需要填写公钥或私钥".to_string());
+            }
+
+            // 仅公钥：直接解析并归一化。
+            if private_in.is_none() {
+                let pub_key = RsaPublicKey::from_public_key_pem(public_in.unwrap())
+                    .map_err(|e| format!("RSA 公钥解析失败：{e}"))?;
+                if pub_key.n().bits() as usize != bits_expected {
+                    return Err(format!("RSA 密钥位数不匹配：期望 {bits_expected}，实际 {}", pub_key.n().bits()));
+                }
+                let public_pem = pub_key
+                    .to_public_key_pem(LineEnding::LF)
+                    .map_err(|e| format!("RSA 公钥导出失败：{e}"))?
+                    .to_string();
+                return Ok((key_type.to_string(), keystore::KeyMaterial::RsaPublic { public_pem }));
+            }
+
+            // 有私钥：支持 PKCS8 / PKCS1，导出为 PKCS8 并按规则决定是否存公钥。
+            let private_in = private_in.unwrap();
+            let private_key = RsaPrivateKey::from_pkcs8_pem(private_in)
+                .or_else(|_| RsaPrivateKey::from_pkcs1_pem(private_in))
+                .map_err(|e| format!("RSA 私钥解析失败：{e}"))?;
+
+            if private_key.n().bits() as usize != bits_expected {
+                return Err(format!(
+                    "RSA 密钥位数不匹配：期望 {bits_expected}，实际 {}",
+                    private_key.n().bits()
+                ));
+            }
+
+            let private_pem = private_key
+                .to_pkcs8_pem(LineEnding::LF)
+                .map_err(|e| format!("RSA 私钥导出失败：{e}"))?
+                .to_string();
+
+            // 用户若填写了公钥：校验必须与私钥匹配。
+            let public_pem = if let Some(public_in) = public_in {
+                let pub_key = RsaPublicKey::from_public_key_pem(public_in)
+                    .map_err(|e| format!("RSA 公钥解析失败：{e}"))?;
+                if pub_key.n() != private_key.n() || pub_key.e() != private_key.e() {
+                    return Err("RSA 公钥与私钥不匹配".to_string());
+                }
+                Some(
+                    pub_key
+                        .to_public_key_pem(LineEnding::LF)
+                        .map_err(|e| format!("RSA 公钥导出失败：{e}"))?
+                        .to_string(),
+                )
+            } else {
+                None
+            };
+
+            Ok((
+                key_type.to_string(),
+                keystore::KeyMaterial::RsaPrivate {
+                    private_pem,
+                    public_pem,
+                },
+            ))
+        }
+        _ => Err(format!("不支持的 key_type：{key_type}")),
+    }
+}
+
+#[tauri::command]
+pub fn keystore_import_key_manual(app: AppHandle, state: State<'_, AppState>, req: UpsertKeyRequest) -> Result<KeyEntryPublic, String> {
+    let label = req.label.trim();
+    if label.is_empty() {
+        return Err("请输入密钥名称".to_string());
+    }
+
+    with_plain_mutation(&app, &state, |plain| {
+        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
+        normalize_key_type_in_place(plain);
+
+        let (key_type, material) = build_material_from_upsert(&req)?;
+        let id = keystore::generate_entry_id();
+
+        plain.key_entries.push(keystore::KeyEntry {
+            id: id.clone(),
+            label: label.to_string(),
+            key_type: key_type.clone(),
+            material,
+        });
+
+        let last = plain
+            .key_entries
+            .last()
+            .ok_or_else(|| "内部错误：导入后未找到条目".to_string())?;
+
+        Ok(KeyEntryPublic {
+            id,
+            label: label.to_string(),
+            key_type: normalize_key_type_for_ui(&key_type),
+            material_kind: material_kind_for_entry(last),
+        })
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateKeyRequest {
+    pub id: String,
+    #[serde(flatten)]
+    pub data: UpsertKeyRequest,
+}
+
+#[tauri::command]
+pub fn keystore_update_key(app: AppHandle, state: State<'_, AppState>, req: UpdateKeyRequest) -> Result<KeyEntryPublic, String> {
+    let id = req.id.trim();
+    if id.is_empty() {
+        return Err("id 不能为空".to_string());
+    }
+    let label = req.data.label.trim();
+    if label.is_empty() {
+        return Err("请输入密钥名称".to_string());
+    }
+
+    with_plain_mutation(&app, &state, |plain| {
+        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
+        normalize_key_type_in_place(plain);
+
+        let (key_type, material) = build_material_from_upsert(&req.data)?;
+
+        let entry = plain
+            .key_entries
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or_else(|| "未找到该密钥".to_string())?;
+
+        entry.label = label.to_string();
+        entry.key_type = key_type.clone();
+        entry.material = material;
+
+        Ok(KeyEntryPublic {
+            id: entry.id.clone(),
+            label: entry.label.clone(),
+            key_type: normalize_key_type_for_ui(&entry.key_type),
+            material_kind: material_kind_for_entry(entry),
+        })
+    })
+}
+
+// =====================
 // 文本加密/解密（后端执行）
 // =====================
 
 /// 文本加密请求：前端只传“算法 + 密钥 + 明文”，加密全部在后端完成。
 #[derive(Debug, Deserialize)]
 pub struct TextEncryptRequest {
-    /// 选择的算法：AES-256 / ChaCha20 / RSA / X25519
+    /// 选择的算法：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
+    ///
+    /// 兼容：历史的 "RSA" 会被视为 "RSA2048"。
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
@@ -784,7 +1267,9 @@ pub struct TextEncryptRequest {
 /// 文本解密请求：前端只传“算法 + 密钥 + 密文(JSON)”，解密全部在后端完成。
 #[derive(Debug, Deserialize)]
 pub struct TextDecryptRequest {
-    /// 选择的算法：AES-256 / ChaCha20 / RSA / X25519
+    /// 选择的算法：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
+    ///
+    /// 兼容：历史的 "RSA" 会被视为 "RSA2048"。
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
