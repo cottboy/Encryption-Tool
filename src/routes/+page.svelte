@@ -664,16 +664,19 @@
         {/if}
       {/if}
 
-      <div class="toolbar" style="margin-top: 12px">
-        <button class="primary" onclick={async () => {
-          try {
-            modalMessage = "";
-            await saveDetail();
-          } catch (e) {
-            modalMessage = formatError(e);
-          }
-        }}>{$t("common.ok")}</button>
-        <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
+      <div class="toolbar toolbar-split" style="margin-top: 12px">
+        <div class="toolbar-left">
+          <button class="primary" onclick={async () => {
+            try {
+              modalMessage = "";
+              await saveDetail();
+            } catch (e) {
+              modalMessage = formatError(e);
+            }
+          }}>{$t("common.ok")}</button>
+          <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
+        </div>
+
         <button class="danger" onclick={async () => {
           try {
             modalMessage = "";
@@ -750,6 +753,18 @@
 
   .danger:hover {
     background: rgba(220, 38, 38, 0.06);
+  }
+
+  .toolbar-split {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .toolbar-left {
+    display: flex;
+    gap: var(--gap);
+    align-items: center;
+    flex-wrap: wrap;
   }
 
   .modal {
