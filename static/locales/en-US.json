@@ -102,6 +102,7 @@
       "importTitle": "Import",
       "exportTitle": "Export",
       "deleteTitle": "Delete",
+      "delete": "Delete",
       "exportFormat": "Export format",
       "chooseFile": "Choose file…",
       "saveFile": "Save…",

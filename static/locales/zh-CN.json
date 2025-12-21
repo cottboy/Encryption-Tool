@@ -102,6 +102,7 @@
       "importTitle": "导入密钥",
       "exportTitle": "导出密钥",
       "deleteTitle": "删除密钥",
+      "delete": "删除",
       "exportFormat": "导出格式",
       "chooseFile": "选择文件…",
       "saveFile": "保存…",

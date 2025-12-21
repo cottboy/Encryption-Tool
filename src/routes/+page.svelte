@@ -375,6 +375,24 @@
     notifyKeystoreChanged();
   }
 
+  // 删除当前详情中的密钥：
+  // - 按你的要求：不弹二次确认，直接删除。
+  // - 删除失败时，将错误展示在弹窗内。
+  async function deleteDetail() {
+    if (!detail) return;
+    modalMessage = "";
+
+    await invoke("keystore_delete_key", {
+      req: {
+        id: detail.id
+      }
+    });
+
+    showDetail = false;
+    await refresh();
+    notifyKeystoreChanged();
+  }
+
   onMount(() => {
     refresh().catch((e) => {
       message = formatError(e);
@@ -656,6 +674,14 @@
           }
         }}>{$t("common.ok")}</button>
         <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
+        <button class="danger" onclick={async () => {
+          try {
+            modalMessage = "";
+            await deleteDetail();
+          } catch (e) {
+            modalMessage = formatError(e);
+          }
+        }}>{$t("keys.ui.delete")}</button>
       </div>
     </div>
   </div>
@@ -715,6 +741,15 @@
     width: 100%;
     box-sizing: border-box;
     resize: vertical;
+  }
+
+  .danger {
+    border-color: rgba(220, 38, 38, 0.35);
+    color: rgb(185, 28, 28);
+  }
+
+  .danger:hover {
+    background: rgba(220, 38, 38, 0.06);
   }
 
   .modal {
