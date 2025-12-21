@@ -6,7 +6,7 @@
 
   本阶段命令重点：
   - 单一密钥库（一个 keystore.json）
-  - 支持密钥生成/导入/导出：AES-256 / ChaCha20 / RSA / X25519
+  - 支持密钥生成/导入/导出：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
   - 支持应用锁（密钥库加密）：启用后启动必须解锁
 */
 
@@ -53,7 +53,7 @@ pub fn get_supported_algorithms() -> SupportedAlgorithms {
     SupportedAlgorithms {
         symmetric: vec!["AES-256", "ChaCha20"],
         // 非对称算法：
-        // - 需求变更：原来的 RSA 改名为 RSA2048，并新增 RSA4096（逻辑保持一致，仅密钥长度不同）。
+        // - 需求变更：新增 RSA4096（逻辑保持一致，仅密钥长度不同）。
         asymmetric: vec!["RSA2048", "RSA4096", "X25519"],
     }
 }
@@ -71,7 +71,7 @@ pub struct KeyEntryPublic {
     /// 用户可读名称：导入/生成时由用户设置。
     pub label: String,
 
-    /// 密钥类型（算法）：例如 AES-256 / ChaCha20 / RSA / X25519。
+    /// 密钥类型（算法）：例如 AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519。
     pub key_type: String,
 
     /// 材料类型：用于前端决定“可预览/可导出”的具体格式。
@@ -81,32 +81,6 @@ pub struct KeyEntryPublic {
     /// - rsa_public_only / rsa_private_only / rsa_full
     /// - x25519_public_only / x25519_secret_only / x25519_full
     pub material_kind: String,
-}
-
-/// 将“历史遗留的算法名”规范化为当前 UI 使用的算法名。
-///
-/// 说明：
-/// - 需求变更要求把原来的 `RSA` 改名为 `RSA2048`。
-/// - 为了不让旧 keystore 里的条目在新 UI 中“消失”（筛选条件是 key_type 相等），
-///   这里在返回给前端时做一次归一化。
-fn normalize_key_type_for_ui(key_type: &str) -> String {
-    match key_type.trim() {
-        "RSA" => "RSA2048".to_string(),
-        other => other.to_string(),
-    }
-}
-
-/// 将 keystore 明文数据中的“旧算法名”原地升级为新算法名。
-///
-/// 说明：
-/// - 我们不在读取时强制写回磁盘（避免无意义的 IO）。
-/// - 但在任何“写操作”发生时，顺手把旧数据规范化，这样用户的 keystore 会逐步被升级。
-fn normalize_key_type_in_place(plain: &mut keystore::KeyStorePlain) {
-    for e in &mut plain.key_entries {
-        if e.key_type.trim() == "RSA" {
-            e.key_type = "RSA2048".to_string();
-        }
-    }
 }
 
 /// 根据条目的材料，计算一个更细粒度的 `material_kind` 给前端做展示/能力判断。
@@ -282,8 +256,7 @@ pub fn keystore_list_entries(app: AppHandle, state: State<'_, AppState>) -> Resu
             KeyEntryPublic {
                 id: e.id.clone(),
                 label: e.label.clone(),
-                // 兼容旧数据：把 RSA 归一化成 RSA2048，避免前端筛选不到。
-                key_type: normalize_key_type_for_ui(&e.key_type),
+                key_type: e.key_type.clone(),
                 material_kind,
             }
         })
@@ -320,9 +293,6 @@ pub fn keystore_generate_key(
         .to_string();
 
     with_plain_mutation(&app, &state, |plain| {
-        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
-        normalize_key_type_in_place(plain);
-
         let id = keystore::generate_entry_id();
 
         let entry_label = if label.is_empty() {
@@ -366,16 +336,13 @@ pub fn keystore_generate_key(
                     },
                 }
             }
-            "RSA" | "RSA2048" | "RSA4096" => {
+            "RSA2048" | "RSA4096" => {
                 // RSA 参数：
-                // - 需求变更：原 RSA 改名为 RSA2048；新增 RSA4096。
-                // - 逻辑保持不变，仅密钥位数不同。
+                // - 需求变更：新增 RSA4096（逻辑保持一致，仅密钥长度不同）。
                 let bits = match key_type {
                     "RSA4096" => 4096,
                     _ => 2048,
                 };
-
-                let normalized = if key_type == "RSA" { "RSA2048" } else { key_type };
 
                 let private = RsaPrivateKey::new(&mut OsRng, bits)
                     .map_err(|e| format!("RSA 生成失败：{e}"))?;
@@ -394,7 +361,7 @@ pub fn keystore_generate_key(
                 keystore::KeyEntry {
                     id: id.clone(),
                     label: entry_label.clone(),
-                    key_type: normalized.to_string(),
+                    key_type: key_type.to_string(),
                     material: keystore::KeyMaterial::RsaPrivate {
                         private_pem,
                         public_pem: Some(public_pem),
@@ -417,7 +384,7 @@ pub fn keystore_generate_key(
         Ok(KeyEntryPublic {
             id,
             label: entry_label.clone(),
-            key_type: normalize_key_type_for_ui(key_type),
+            key_type: key_type.to_string(),
             material_kind,
         })
     })
@@ -448,9 +415,6 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
     let text = String::from_utf8_lossy(&bytes).to_string();
 
     with_plain_mutation(&app, &state, |plain| {
-        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
-        normalize_key_type_in_place(plain);
-
         let id = keystore::generate_entry_id();
 
         let entry_label = if label.is_empty() {
@@ -544,14 +508,13 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
                     material: keystore::KeyMaterial::X25519 { secret_b64, public_b64 },
                 }
             }
-            "RSA" | "RSA2048" | "RSA4096" => {
+            "RSA2048" | "RSA4096" => {
                 // RSA 导入（文件方式）：
                 // - 兼容：既支持私钥 PEM，也支持公钥 PEM。
                 // - 需求变更：允许“仅公钥/仅私钥”。为了可控，这里不自动从私钥推导公钥。
                 let bits_expected = match key_type {
                     "RSA4096" => Some(4096),
-                    // 历史兼容：RSA 视为 RSA2048
-                    "RSA" | "RSA2048" => Some(2048),
+                    "RSA2048" => Some(2048),
                     _ => None,
                 };
 
@@ -573,7 +536,7 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
                     keystore::KeyEntry {
                         id: id.clone(),
                         label: entry_label.clone(),
-                        key_type: normalize_key_type_for_ui(key_type),
+                        key_type: key_type.to_string(),
                         material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem: None },
                     }
                 }
@@ -592,7 +555,7 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
                     keystore::KeyEntry {
                         id: id.clone(),
                         label: entry_label.clone(),
-                        key_type: normalize_key_type_for_ui(key_type),
+                        key_type: key_type.to_string(),
                         material: keystore::KeyMaterial::RsaPrivate { private_pem, public_pem: None },
                     }
                 }
@@ -611,7 +574,7 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
                     keystore::KeyEntry {
                         id: id.clone(),
                         label: entry_label.clone(),
-                        key_type: normalize_key_type_for_ui(key_type),
+                        key_type: key_type.to_string(),
                         material: keystore::KeyMaterial::RsaPublic { public_pem },
                     }
                 } else {
@@ -631,7 +594,7 @@ pub fn keystore_import_key(app: AppHandle, state: State<'_, AppState>, req: Impo
         Ok(KeyEntryPublic {
             id,
             label: entry_label.clone(),
-            key_type: normalize_key_type_for_ui(key_type),
+            key_type: key_type.to_string(),
             material_kind: material_kind_for_entry(last),
         })
     })
@@ -668,13 +631,13 @@ pub fn keystore_export_key(app: AppHandle, state: State<'_, AppState>, req: Expo
         ("AES-256" | "ChaCha20", keystore::KeyMaterial::Symmetric { key_b64 }, "key_b64") => {
             key_b64.clone()
         }
-        ("RSA" | "RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { private_pem, .. }, "private_pem") => private_pem.clone(),
-        ("RSA" | "RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { public_pem, .. }, "public_pem") => {
+        ("RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { private_pem, .. }, "private_pem") => private_pem.clone(),
+        ("RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { public_pem, .. }, "public_pem") => {
             public_pem
                 .clone()
                 .ok_or_else(|| "该 RSA 条目缺少公钥，无法导出公钥".to_string())?
         }
-        ("RSA" | "RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPublic { public_pem }, "public_pem") => public_pem.clone(),
+        ("RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPublic { public_pem }, "public_pem") => public_pem.clone(),
         ("X25519", keystore::KeyMaterial::X25519 { public_b64, .. }, "public_b64") => {
             public_b64
                 .clone()
@@ -886,7 +849,7 @@ pub fn keystore_get_key_preview(app: AppHandle, state: State<'_, AppState>, req:
     match &entry.material {
         keystore::KeyMaterial::Symmetric { key_b64 } => Ok(KeyPreview::Symmetric {
             label: entry.label.clone(),
-            algorithm: normalize_key_type_for_ui(&entry.key_type),
+            algorithm: entry.key_type.clone(),
             key_b64: key_b64.clone(),
         }),
         keystore::KeyMaterial::RsaPrivate { private_pem, public_pem } => Ok(KeyPreview::Rsa {
@@ -950,7 +913,7 @@ pub fn keystore_get_key_detail(app: AppHandle, state: State<'_, AppState>, req: 
     let mut out = KeyDetail {
         id: entry.id.clone(),
         label: entry.label.clone(),
-        key_type: normalize_key_type_for_ui(&entry.key_type),
+        key_type: entry.key_type.clone(),
         material_kind: material_kind_for_entry(entry),
         symmetric_key_b64: None,
         rsa_public_pem: None,
@@ -1008,9 +971,7 @@ fn build_material_from_upsert(req: &UpsertKeyRequest) -> Result<(String, keystor
     if key_type_raw.is_empty() {
         return Err("key_type 不能为空".to_string());
     }
-
-    // 兼容旧值：RSA 视为 RSA2048
-    let key_type = if key_type_raw == "RSA" { "RSA2048" } else { key_type_raw };
+    let key_type = key_type_raw;
 
     match key_type {
         "AES-256" | "ChaCha20" => {
@@ -1177,9 +1138,6 @@ pub fn keystore_import_key_manual(app: AppHandle, state: State<'_, AppState>, re
     }
 
     with_plain_mutation(&app, &state, |plain| {
-        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
-        normalize_key_type_in_place(plain);
-
         let (key_type, material) = build_material_from_upsert(&req)?;
         let id = keystore::generate_entry_id();
 
@@ -1198,7 +1156,7 @@ pub fn keystore_import_key_manual(app: AppHandle, state: State<'_, AppState>, re
         Ok(KeyEntryPublic {
             id,
             label: label.to_string(),
-            key_type: normalize_key_type_for_ui(&key_type),
+            key_type,
             material_kind: material_kind_for_entry(last),
         })
     })
@@ -1223,9 +1181,6 @@ pub fn keystore_update_key(app: AppHandle, state: State<'_, AppState>, req: Upda
     }
 
     with_plain_mutation(&app, &state, |plain| {
-        // 写操作前，顺手把旧数据里的 RSA 升级成 RSA2048，避免混用。
-        normalize_key_type_in_place(plain);
-
         let (key_type, material) = build_material_from_upsert(&req.data)?;
 
         let entry = plain
@@ -1241,7 +1196,7 @@ pub fn keystore_update_key(app: AppHandle, state: State<'_, AppState>, req: Upda
         Ok(KeyEntryPublic {
             id: entry.id.clone(),
             label: entry.label.clone(),
-            key_type: normalize_key_type_for_ui(&entry.key_type),
+            key_type: entry.key_type.clone(),
             material_kind: material_kind_for_entry(entry),
         })
     })
@@ -1255,8 +1210,6 @@ pub fn keystore_update_key(app: AppHandle, state: State<'_, AppState>, req: Upda
 #[derive(Debug, Deserialize)]
 pub struct TextEncryptRequest {
     /// 选择的算法：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
-    ///
-    /// 兼容：历史的 "RSA" 会被视为 "RSA2048"。
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
@@ -1268,8 +1221,6 @@ pub struct TextEncryptRequest {
 #[derive(Debug, Deserialize)]
 pub struct TextDecryptRequest {
     /// 选择的算法：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
-    ///
-    /// 兼容：历史的 "RSA" 会被视为 "RSA2048"。
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,

@@ -113,8 +113,7 @@
   }
 
   function isRsaFamily(algo: string): boolean {
-    // 兼容：历史的 RSA 视为 RSA2048
-    return algo === "RSA2048" || algo === "RSA4096" || algo === "RSA";
+    return algo === "RSA2048" || algo === "RSA4096";
   }
 
   // 能力检查：根据算法 + 材料类型决定是否允许加密/解密。

@@ -84,11 +84,6 @@
       "enabledLocked": "已启用（未解锁）",
       "disabled": "未启用",
       "detailTitle": "密钥详情",
-      "copy": "复制",
-      "confirm": {
-        "showSensitive": "该内容包含敏感信息，确定要显示吗？",
-        "copySensitive": "该内容包含敏感信息，确定要复制到剪贴板吗？"
-      },
       "actions": {
         "preview": "预览密钥",
         "export": "导出密钥"
@@ -148,7 +143,6 @@
         "nameRequired": "请输入密钥名称"
       },
       "msg": {
-        "copied": "已复制到剪贴板",
         "exported": "已导出到：{path}"
       },
       "previewTitle": "预览",

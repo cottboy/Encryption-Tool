@@ -112,9 +112,11 @@
 
   // Detail（点击密钥行打开）
   let detail = $state<KeyDetail | null>(null);
-  let detailShowSecret = $state(false);
-  let detailShowRsaPrivate = $state(false);
-  let detailShowX25519Secret = $state(false);
+
+  // 弹窗内提示信息：
+  // - 之前 message 渲染在页面底部，弹窗遮罩会挡住，用户会误以为“点确定没反应”。
+  // - 因此这里给弹窗单独一份 message，确保可见。
+  let modalMessage = $state("");
 
   // 键盘快捷键：当任意弹窗开启时，按 ESC 关闭。
   $effect(() => {
@@ -269,54 +271,13 @@
     return `${e.key_type}${typeSuffix(e.material_kind)}`;
   }
 
-  function confirmSensitive(opKey: string): boolean {
-    // 二次确认：敏感字段显示/复制前，避免误触泄露。
-    return window.confirm($t(opKey));
-  }
-
-  async function copyText(text: string): Promise<void> {
-    // 优先使用标准 Clipboard API；失败则退化为 execCommand（兼容一些 WebView 环境）。
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-  }
-
-  async function copyField(value: string, sensitive: boolean): Promise<void> {
-    if (!value.trim()) return;
-
-    if (sensitive) {
-      const ok = confirmSensitive("keys.ui.confirm.copySensitive");
-      if (!ok) return;
-    }
-
-    try {
-      await copyText(value);
-      message = $t("keys.ui.msg.copied");
-    } catch (e) {
-      message = formatError(e);
-    }
-  }
-
   // =====================
   // 密钥详情：打开/编辑/保存
   // =====================
 
   function resetDetailState() {
     detail = null;
-    detailShowSecret = false;
-    detailShowRsaPrivate = false;
-    detailShowX25519Secret = false;
+    modalMessage = "";
   }
 
   async function openDetail(entry: KeyEntryPublic) {
@@ -335,7 +296,7 @@
         x25519_secret_b64: raw.x25519_secret_b64 ?? ""
       };
     } catch (e) {
-      message = formatError(e);
+      modalMessage = formatError(e);
       showDetail = false;
     }
   }
@@ -387,18 +348,18 @@
 
   async function saveDetail() {
     if (!detail) return;
-    message = "";
+    modalMessage = "";
 
     const name = detail.label.trim();
     if (!name) {
-      message = $t("keys.ui.errors.nameRequired");
+      modalMessage = $t("keys.ui.errors.nameRequired");
       return;
     }
 
     await invoke("keystore_update_key", {
       req: {
         id: detail.id,
-        data: buildUpsertPayload(detail.key_type as SupportedType, {
+        ...buildUpsertPayload(detail.key_type as SupportedType, {
           label: name,
           symmetric_key_b64: detail.symmetric_key_b64,
           rsa_public_pem: detail.rsa_public_pem,
@@ -534,6 +495,10 @@
   <div class="modal" role="presentation">
     <div class="modal-inner" role="dialog" tabindex="-1" aria-modal="true" aria-label={$t("keys.ui.importTitle")}>
       <div class="modal-title">{$t("keys.ui.importTitle")}</div>
+
+      {#if modalMessage}
+        <p class="help" style="margin-top: 10px; color: #0b4db8">{modalMessage}</p>
+      {/if}
       <div class="grid2" style="margin-top: 10px">
         <div>
           <div class="label">{$t("common.algorithm")}</div>
@@ -577,9 +542,10 @@
       <div class="toolbar" style="margin-top: 12px">
         <button class="primary" onclick={async () => {
           try {
+            modalMessage = "";
             await doImport();
           } catch (e) {
-            message = formatError(e);
+            modalMessage = formatError(e);
           }
         }}>{$t("common.ok")}</button>
         <button onclick={() => (showImport = false)}>{$t("common.cancel")}</button>
@@ -636,6 +602,10 @@
     <div class="modal-inner" role="dialog" tabindex="-1" aria-modal="true" aria-label={$t("keys.ui.detailTitle")}>
       <div class="modal-title">{$t("keys.ui.detailTitle")}</div>
 
+      {#if modalMessage}
+        <p class="help" style="margin-top: 10px; color: #0b4db8">{modalMessage}</p>
+      {/if}
+
       {#if !detail}
         <p class="help">{$t("common.loading")}</p>
       {:else}
@@ -658,85 +628,31 @@
 
         {#if detail.key_type === "AES-256" || detail.key_type === "ChaCha20"}
           <div class="label">{$t("keys.ui.preview.symmetricKey")}</div>
-          <div class="toolbar" style="margin-top: 8px">
-            <button onclick={() => {
-              if (!detailShowSecret) {
-                if (!confirmSensitive("keys.ui.confirm.showSensitive")) return;
-              }
-              detailShowSecret = !detailShowSecret;
-            }}>
-              {detailShowSecret ? $t("common.hide") : $t("common.show")}
-            </button>
-            <button onclick={async () => {
-              await copyField(detail?.symmetric_key_b64 ?? "", true);
-            }}>{$t("keys.ui.copy")}</button>
-          </div>
-          {#if detailShowSecret}
-            <textarea rows="5" bind:value={detail.symmetric_key_b64}></textarea>
-          {/if}
+          <textarea rows="5" bind:value={detail.symmetric_key_b64}></textarea>
         {:else if detail.key_type === "X25519"}
           <div class="label">{$t("keys.ui.preview.publicB64")}</div>
-          <div class="toolbar" style="margin-top: 8px">
-            <button onclick={async () => {
-              await copyField(detail?.x25519_public_b64 ?? "", false);
-            }}>{$t("keys.ui.copy")}</button>
-          </div>
           <textarea rows="4" bind:value={detail.x25519_public_b64}></textarea>
 
           <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.secretB64")}</div>
-          <div class="toolbar" style="margin-top: 8px">
-            <button onclick={() => {
-              if (!detailShowX25519Secret) {
-                if (!confirmSensitive("keys.ui.confirm.showSensitive")) return;
-              }
-              detailShowX25519Secret = !detailShowX25519Secret;
-            }}>
-              {detailShowX25519Secret ? $t("common.hide") : $t("common.show")}
-            </button>
-            <button onclick={async () => {
-              await copyField(detail?.x25519_secret_b64 ?? "", true);
-            }}>{$t("keys.ui.copy")}</button>
-          </div>
-          {#if detailShowX25519Secret}
-            <textarea rows="4" bind:value={detail.x25519_secret_b64}></textarea>
-          {/if}
+          <textarea rows="4" bind:value={detail.x25519_secret_b64}></textarea>
 
           <div class="help" style="margin-top: 8px">{$t("keys.ui.hints.x25519NeedFull")}</div>
         {:else}
           <div class="label">{$t("keys.ui.preview.publicPem")}</div>
-          <div class="toolbar" style="margin-top: 8px">
-            <button onclick={async () => {
-              await copyField(detail?.rsa_public_pem ?? "", false);
-            }}>{$t("keys.ui.copy")}</button>
-          </div>
           <textarea rows="8" bind:value={detail.rsa_public_pem}></textarea>
 
           <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.privatePem")}</div>
-          <div class="toolbar" style="margin-top: 8px">
-            <button onclick={() => {
-              if (!detailShowRsaPrivate) {
-                if (!confirmSensitive("keys.ui.confirm.showSensitive")) return;
-              }
-              detailShowRsaPrivate = !detailShowRsaPrivate;
-            }}>
-              {detailShowRsaPrivate ? $t("common.hide") : $t("common.show")}
-            </button>
-            <button onclick={async () => {
-              await copyField(detail?.rsa_private_pem ?? "", true);
-            }}>{$t("keys.ui.copy")}</button>
-          </div>
-          {#if detailShowRsaPrivate}
-            <textarea rows="10" bind:value={detail.rsa_private_pem}></textarea>
-          {/if}
+          <textarea rows="10" bind:value={detail.rsa_private_pem}></textarea>
         {/if}
       {/if}
 
       <div class="toolbar" style="margin-top: 12px">
         <button class="primary" onclick={async () => {
           try {
+            modalMessage = "";
             await saveDetail();
           } catch (e) {
-            message = formatError(e);
+            modalMessage = formatError(e);
           }
         }}>{$t("common.ok")}</button>
         <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
@@ -795,6 +711,12 @@
     background: rgba(0, 0, 0, 0.03);
   }
 
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+
   .modal {
     position: fixed;
     inset: 0;
@@ -803,16 +725,25 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: 12px;
   }
 
   .modal-inner {
-    width: 100%;
-    max-width: 720px;
+    /*
+      弹窗尺寸策略：
+      - 之前使用固定 max-width，窗口较小时容易被裁切。
+      - 这里改为按“当前可视区域百分比”铺开，同时限制高度并允许滚动。
+    */
+    width: 92vw;
+    height: 90vh;
+    max-width: 92vw;
+    max-height: 90vh;
+    overflow: auto;
     padding: 16px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: rgba(255, 255, 255, 0.75);
+    box-sizing: border-box;
   }
 
   .modal-title {

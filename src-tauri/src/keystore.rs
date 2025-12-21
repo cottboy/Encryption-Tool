@@ -96,8 +96,6 @@ pub struct KeyEntry {
     pub label: String,
 
     /// 密钥类型（例如 AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519）。
-    ///
-    /// 兼容：历史版本可能仍写入 "RSA"，在业务逻辑中会视为 "RSA2048"。
     pub key_type: String,
 
     /// 密钥材料。

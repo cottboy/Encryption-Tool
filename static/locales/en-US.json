@@ -84,11 +84,6 @@
       "enabledLocked": "Enabled (locked)",
       "disabled": "Disabled",
       "detailTitle": "Key Details",
-      "copy": "Copy",
-      "confirm": {
-        "showSensitive": "This content is sensitive. Show it anyway?",
-        "copySensitive": "This content is sensitive. Copy it to clipboard anyway?"
-      },
       "actions": {
         "preview": "Preview key",
         "export": "Export key"
@@ -148,7 +143,6 @@
         "nameRequired": "Please enter a key name"
       },
       "msg": {
-        "copied": "Copied to clipboard",
         "exported": "Exported: {path}"
       },
       "previewTitle": "Preview",

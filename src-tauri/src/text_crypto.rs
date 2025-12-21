@@ -4,7 +4,7 @@
   - 输出格式：使用 JSON “自描述容器”，便于未来扩展与兼容。
   - 安全策略：
     1) 对称加密一律使用 AEAD（认证加密，防篡改）
-    2) RSA：优先尝试 OAEP 直接加密；超出长度限制时自动切换为混合加密
+    2) RSA（RSA2048 / RSA4096）：优先尝试 OAEP 直接加密；超出长度限制时自动切换为混合加密
     3) X25519：天然走混合加密（协商共享密钥 → 派生会话密钥 → AEAD 加密正文）
   - 错误策略：
     - 解密失败统一提示“密钥错误或数据已损坏”，避免向 UI 泄露过多细节。
@@ -26,23 +26,6 @@ use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSec
 use zeroize::Zeroizing;
 
 use crate::keystore;
-
-/// 将“历史遗留的算法名”规范化成当前实现使用的算法名。
-///
-/// 说明：
-/// - 需求变更：原来的 `RSA` 改名为 `RSA2048`。
-/// - 为了兼容旧数据（旧 keystore / 旧密文容器），这里统一把 `RSA` 视为 `RSA2048`。
-fn normalize_algorithm_name(algo: &str) -> &str {
-    match algo.trim() {
-        "RSA" => "RSA2048",
-        other => other,
-    }
-}
-
-/// 判断是否属于 RSA 家族算法（RSA2048 / RSA4096 / 历史的 RSA）。
-fn is_rsa_family(algo: &str) -> bool {
-    matches!(normalize_algorithm_name(algo), "RSA2048" | "RSA4096")
-}
 
 /// 文本加密容器版本：将来结构变更可用它做兼容/迁移。
 const TEXT_CIPHER_VERSION: u32 = 1;
@@ -275,11 +258,11 @@ fn parse_symmetric_key(entry: &keystore::KeyEntry) -> Result<Zeroizing<[u8; 32]>
 }
 
 /// 文本加密：
-/// - algorithm：AES-256 / ChaCha20 / RSA / X25519
+/// - algorithm：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
 /// - key_id：密钥库条目 id
 /// - input：明文（UTF-8 字符串）
 pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &str, input: &str) -> Result<TextEncryptResponse, String> {
-    let algo = normalize_algorithm_name(algorithm.trim());
+    let algo = algorithm.trim();
     let key_id = key_id.trim();
     if algo.is_empty() {
         return Err("请选择算法".to_string());
@@ -290,8 +273,7 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 
     // 找到密钥条目，并做“算法与密钥类型”匹配校验。
     let entry = find_entry(plain, key_id)?;
-    // 兼容旧数据：entry.key_type 可能还是 "RSA"
-    if normalize_algorithm_name(&entry.key_type) != algo {
+    if entry.key_type != algo {
         return Err("算法与密钥类型不匹配".to_string());
     }
 
@@ -418,11 +400,11 @@ pub fn encrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 }
 
 /// 文本解密：
-/// - algorithm：AES-256 / ChaCha20 / RSA / X25519（用于匹配校验）
+/// - algorithm：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519（用于匹配校验）
 /// - key_id：密钥库条目 id
 /// - input：密文 JSON 字符串
 pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &str, input: &str) -> Result<TextDecryptResponse, String> {
-    let algo = normalize_algorithm_name(algorithm.trim());
+    let algo = algorithm.trim();
     let key_id = key_id.trim();
     if algo.is_empty() || key_id.is_empty() {
         return Err(DECRYPT_FAIL_MSG.to_string());
@@ -430,7 +412,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
 
     // 先加载密钥，并做基础匹配（注意：解密错误不应泄露细节）。
     let entry = find_entry(plain, key_id).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-    if normalize_algorithm_name(&entry.key_type) != algo {
+    if entry.key_type != algo {
         return Err(DECRYPT_FAIL_MSG.to_string());
     }
 
@@ -471,7 +453,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             Ok(TextDecryptResponse { plaintext: out })
         }
         TextCipherPayload::RsaOaep { alg, ciphertext_b64, .. } => {
-            if !is_rsa_family(&alg) || !is_rsa_family(algo) || normalize_algorithm_name(&alg) != algo {
+            if alg != algo {
                 return Err(DECRYPT_FAIL_MSG.to_string());
             }
             let priv_key = parse_rsa_private(entry)?;
@@ -490,7 +472,7 @@ pub fn decrypt_text(plain: &keystore::KeyStorePlain, algorithm: &str, key_id: &s
             ciphertext_b64,
             ..
         } => {
-            if !is_rsa_family(&alg) || !is_rsa_family(algo) || normalize_algorithm_name(&alg) != algo {
+            if alg != algo {
                 return Err(DECRYPT_FAIL_MSG.to_string());
             }
             let priv_key = parse_rsa_private(entry)?;
