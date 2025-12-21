@@ -11,6 +11,9 @@
 */
 
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use base64::Engine;
 use rand::rngs::OsRng;
@@ -20,11 +23,16 @@ use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePubl
 use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::Zeroizing;
 
-use crate::{keystore, state::AppState, state::UnlockedKeystore, text_crypto};
+use crate::{
+    file_crypto,
+    keystore,
+    state::{AppState, FileCryptoTaskControl, UnlockedKeystore},
+    text_crypto,
+};
 
 // =====================
 // 基础命令（用于连通性）
@@ -1246,4 +1254,476 @@ pub fn text_decrypt(app: AppHandle, state: State<'_, AppState>, req: TextDecrypt
 
     // 调用专用模块执行解密：内部已做错误收敛处理。
     text_crypto::decrypt_text(&plain, &req.algorithm, &req.key_id, &req.ciphertext)
+}
+
+// =====================
+// 文件加密/解密（后端执行，流式分块）
+// =====================
+
+/// 文件加密/解密的进度事件名：前端通过 `listen` 订阅。
+const EVENT_FILE_CRYPTO_PROGRESS: &str = "file_crypto_progress";
+/// 文件加密/解密的完成事件名：前端通过 `listen` 订阅。
+const EVENT_FILE_CRYPTO_DONE: &str = "file_crypto_done";
+/// 文件加密/解密的错误事件名：前端通过 `listen` 订阅。
+const EVENT_FILE_CRYPTO_ERROR: &str = "file_crypto_error";
+/// 文件加密/解密的取消事件名：前端通过 `listen` 订阅。
+const EVENT_FILE_CRYPTO_CANCELED: &str = "file_crypto_canceled";
+
+/// 文件加密/解密：进度事件负载。
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCryptoProgressEvent {
+    /// 任务 id：用于前端只更新“当前任务”的进度。
+    pub task_id: String,
+    /// 阶段：encrypt / decrypt（便于 UI 区分提示文案）。
+    pub stage: String,
+    /// 已处理字节数（明文维度）。
+    pub processed_bytes: u64,
+    /// 总字节数（明文维度）。
+    pub total_bytes: u64,
+}
+
+/// 文件加密/解密：完成事件负载。
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCryptoDoneEvent {
+    pub task_id: String,
+    pub output_path: String,
+}
+
+/// 文件加密/解密：错误事件负载。
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCryptoErrorEvent {
+    pub task_id: String,
+    pub message: String,
+}
+
+/// 文件加密/解密：取消事件负载。
+#[derive(Debug, Clone, Serialize)]
+pub struct FileCryptoCanceledEvent {
+    pub task_id: String,
+}
+
+/// 文件加密请求：
+/// - 前端传入算法 + 密钥 id + 输入文件路径 + 输出目录（可选）。
+#[derive(Debug, Deserialize)]
+pub struct FileEncryptRequest {
+    pub algorithm: String,
+    pub key_id: String,
+    pub input_path: String,
+    pub output_dir: Option<String>,
+}
+
+/// 文件解密请求：
+/// - 前端传入算法 + 密钥 id + 输入 `.encrypted` 文件路径 + 输出目录（可选）。
+#[derive(Debug, Deserialize)]
+pub struct FileDecryptRequest {
+    pub algorithm: String,
+    pub key_id: String,
+    pub input_path: String,
+    pub output_dir: Option<String>,
+}
+
+/// 文件任务开始返回：
+/// - task_id：用于前端订阅进度与取消
+/// - output_path：后端推导出的输出路径（便于 UI 展示）
+/// - original_file_name：仅解密场景返回（用于 UI 展示“将还原为 XXX”）
+#[derive(Debug, Serialize)]
+pub struct FileCryptoStartResponse {
+    pub task_id: String,
+    pub output_path: String,
+    pub original_file_name: Option<String>,
+}
+
+/// 解析并规范化输出目录：
+/// - 为空则回退到 `default_dir`
+/// - 非目录则返回错误
+fn normalize_output_dir(input: &Option<String>, default_dir: &Path) -> Result<PathBuf, String> {
+    let dir = match input.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        Some(s) => PathBuf::from(s),
+        None => default_dir.to_path_buf(),
+    };
+
+    if !dir.exists() {
+        return Err("输出目录不存在".to_string());
+    }
+    if !dir.is_dir() {
+        return Err("输出目录不是文件夹".to_string());
+    }
+    Ok(dir)
+}
+
+/// 从 keystore 中解析“文件加密侧”密钥材料：
+/// - 对称：需要 32 字节 key
+/// - RSA：需要公钥 PEM（RsaPublic 或 RsaPrivate 中携带的 public_pem）
+/// - X25519：产品规则要求“完整”（公钥+私钥），但加密时实际只使用公钥
+fn resolve_file_encrypt_key(
+    plain: &keystore::KeyStorePlain,
+    algorithm: &str,
+    key_id: &str,
+) -> Result<file_crypto::EncryptKeyMaterial, String> {
+    let entry = keystore::find_entry(plain, key_id).ok_or_else(|| "未找到指定的密钥".to_string())?;
+
+    if entry.key_type != algorithm {
+        return Err("所选密钥与算法不匹配".to_string());
+    }
+
+    match (&entry.key_type[..], &entry.material) {
+        ("AES-256" | "ChaCha20", keystore::KeyMaterial::Symmetric { key_b64 }) => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(key_b64.trim())
+                .map_err(|_| "对称密钥 Base64 解码失败".to_string())?;
+            if bytes.len() != 32 {
+                return Err("对称密钥必须为 32 字节".to_string());
+            }
+            let mut key_32 = Zeroizing::new([0u8; 32]);
+            key_32.copy_from_slice(&bytes);
+
+            Ok(file_crypto::EncryptKeyMaterial::Symmetric {
+                alg: entry.key_type.clone(),
+                key_32,
+            })
+        }
+        ("RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPublic { public_pem }) => Ok(file_crypto::EncryptKeyMaterial::RsaPublic {
+            alg: entry.key_type.clone(),
+            public_pem: public_pem.clone(),
+        }),
+        ("RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { public_pem, .. }) => {
+            let pub_pem = public_pem
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥".to_string())?;
+
+            Ok(file_crypto::EncryptKeyMaterial::RsaPublic {
+                alg: entry.key_type.clone(),
+                public_pem: pub_pem.to_string(),
+            })
+        }
+        ("X25519", keystore::KeyMaterial::X25519 { secret_b64, public_b64 }) => {
+            // 产品规则：X25519 必须同时拥有公钥+私钥才允许加/解密。
+            let pub_b64 = public_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "X25519 加密需要公钥，请选择“完整”类型的 X25519 密钥".to_string())?;
+            let sec_b64 = secret_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "X25519 加密/解密需要私钥，请选择“完整”类型的 X25519 密钥".to_string())?;
+
+            // 公钥解析（32 字节）
+            let pub_bytes = base64::engine::general_purpose::STANDARD
+                .decode(pub_b64)
+                .map_err(|_| "X25519 公钥 Base64 解码失败".to_string())?;
+            if pub_bytes.len() != 32 {
+                return Err("X25519 公钥必须为 32 字节".to_string());
+            }
+            let mut pub_32 = [0u8; 32];
+            pub_32.copy_from_slice(&pub_bytes);
+
+            // 私钥仅用于“规则校验”（确保完整）；实际加密流程只需要公钥。
+            let sec_bytes = base64::engine::general_purpose::STANDARD
+                .decode(sec_b64)
+                .map_err(|_| "X25519 私钥 Base64 解码失败".to_string())?;
+            if sec_bytes.len() != 32 {
+                return Err("X25519 私钥必须为 32 字节".to_string());
+            }
+
+            Ok(file_crypto::EncryptKeyMaterial::X25519Public { public_32: pub_32 })
+        }
+        _ => Err("所选密钥类型不支持当前算法".to_string()),
+    }
+}
+
+/// 从 keystore 中解析“文件解密侧”密钥材料：
+/// - 对称：需要 32 字节 key
+/// - RSA：需要私钥 PEM
+/// - X25519：产品规则要求“完整”（公钥+私钥），但解密时实际只使用私钥
+fn resolve_file_decrypt_key(
+    plain: &keystore::KeyStorePlain,
+    algorithm: &str,
+    key_id: &str,
+) -> Result<file_crypto::DecryptKeyMaterial, String> {
+    let entry = keystore::find_entry(plain, key_id).ok_or_else(|| "未找到指定的密钥".to_string())?;
+
+    if entry.key_type != algorithm {
+        return Err("所选密钥与算法不匹配".to_string());
+    }
+
+    match (&entry.key_type[..], &entry.material) {
+        ("AES-256" | "ChaCha20", keystore::KeyMaterial::Symmetric { key_b64 }) => {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(key_b64.trim())
+                .map_err(|_| "对称密钥 Base64 解码失败".to_string())?;
+            if bytes.len() != 32 {
+                return Err("对称密钥必须为 32 字节".to_string());
+            }
+            let mut key_32 = Zeroizing::new([0u8; 32]);
+            key_32.copy_from_slice(&bytes);
+
+            Ok(file_crypto::DecryptKeyMaterial::Symmetric {
+                alg: entry.key_type.clone(),
+                key_32,
+            })
+        }
+        ("RSA2048" | "RSA4096", keystore::KeyMaterial::RsaPrivate { private_pem, .. }) => Ok(file_crypto::DecryptKeyMaterial::RsaPrivate {
+            private_pem: private_pem.clone(),
+        }),
+        ("RSA2048" | "RSA4096", _) => Err("RSA 解密需要私钥，请选择包含私钥的 RSA 密钥".to_string()),
+        ("X25519", keystore::KeyMaterial::X25519 { secret_b64, public_b64 }) => {
+            // 产品规则：X25519 必须同时拥有公钥+私钥才允许加/解密。
+            let _pub_b64 = public_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "X25519 解密需要公钥+私钥，请选择“完整”类型的 X25519 密钥".to_string())?;
+            let sec_b64 = secret_b64
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "X25519 解密需要私钥，请选择“完整”类型的 X25519 密钥".to_string())?;
+
+            let sec_bytes = base64::engine::general_purpose::STANDARD
+                .decode(sec_b64)
+                .map_err(|_| "X25519 私钥 Base64 解码失败".to_string())?;
+            if sec_bytes.len() != 32 {
+                return Err("X25519 私钥必须为 32 字节".to_string());
+            }
+            let mut sec_32 = Zeroizing::new([0u8; 32]);
+            sec_32.copy_from_slice(&sec_bytes);
+
+            Ok(file_crypto::DecryptKeyMaterial::X25519Secret { secret_32: sec_32 })
+        }
+        _ => Err("所选密钥类型不支持当前算法".to_string()),
+    }
+}
+
+/// 启动文件加密任务（后台线程执行，前端通过事件拿进度）。
+#[tauri::command]
+pub fn file_encrypt_start(app: AppHandle, state: State<'_, AppState>, req: FileEncryptRequest) -> Result<FileCryptoStartResponse, String> {
+    // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
+    let plain = load_plain_for_read(&app, &state)?;
+
+    let algo = req.algorithm.trim();
+    if algo.is_empty() {
+        return Err("请选择算法".to_string());
+    }
+    let key_id = req.key_id.trim();
+    if key_id.is_empty() {
+        return Err("请选择密钥".to_string());
+    }
+
+    let input_path = PathBuf::from(req.input_path.trim());
+    if req.input_path.trim().is_empty() {
+        return Err("请选择输入文件".to_string());
+    }
+
+    let default_dir = input_path
+        .parent()
+        .ok_or_else(|| "无法解析输入文件所在目录".to_string())?;
+
+    let output_dir = normalize_output_dir(&req.output_dir, default_dir)?;
+    let output_path = file_crypto::build_encrypt_output_path(&input_path, &output_dir)?;
+
+    // 解析密钥材料：提前做参数校验，避免任务启动后才失败。
+    let key = resolve_file_encrypt_key(&plain, algo, key_id)?;
+
+    // 生成任务 id，并在 AppState 中注册取消标记。
+    let task_id = keystore::generate_entry_id();
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = state
+            .file_crypto_tasks
+            .lock()
+            .map_err(|_| "内部错误：任务状态锁被占用".to_string())?;
+        guard.insert(task_id.clone(), FileCryptoTaskControl { cancel: cancel.clone() });
+    }
+
+    // 后台线程执行：避免阻塞 Tauri 命令调用线程。
+    let app2 = app.clone();
+    let task_id2 = task_id.clone();
+    let output_path2 = output_path.clone();
+    std::thread::spawn(move || {
+        // 进度回调：每次分块都会回调一次，前端据此更新进度条。
+        let emit_progress = |processed: u64, total: u64| {
+            let _ = app2.emit(
+                EVENT_FILE_CRYPTO_PROGRESS,
+                FileCryptoProgressEvent {
+                    task_id: task_id2.clone(),
+                    stage: "encrypt".to_string(),
+                    processed_bytes: processed,
+                    total_bytes: total,
+                },
+            );
+        };
+
+        let is_canceled = || cancel.load(Ordering::Relaxed);
+
+        let res = file_crypto::encrypt_file_stream(&input_path, &output_path2, key, &emit_progress, &is_canceled);
+
+        match res {
+            Ok(file_crypto::FileCryptoOutcome::Completed) => {
+                let _ = app2.emit(
+                    EVENT_FILE_CRYPTO_DONE,
+                    FileCryptoDoneEvent {
+                        task_id: task_id2.clone(),
+                        output_path: output_path2.to_string_lossy().to_string(),
+                    },
+                );
+            }
+            Ok(file_crypto::FileCryptoOutcome::Canceled) => {
+                let _ = app2.emit(EVENT_FILE_CRYPTO_CANCELED, FileCryptoCanceledEvent { task_id: task_id2.clone() });
+            }
+            Err(e) => {
+                let _ = app2.emit(
+                    EVENT_FILE_CRYPTO_ERROR,
+                    FileCryptoErrorEvent {
+                        task_id: task_id2.clone(),
+                        message: e,
+                    },
+                );
+            }
+        }
+
+        // 无论成功/失败/取消，都要清理任务状态，避免内存泄漏。
+        // 注意：显式用一个作用域包住 lock，避免出现“临时值析构晚于借用”的生命周期报错。
+        {
+            let s = app2.state::<AppState>();
+            if let Ok(mut guard) = s.file_crypto_tasks.lock() {
+                guard.remove(&task_id2);
+            };
+        }
+    });
+
+    Ok(FileCryptoStartResponse {
+        task_id,
+        output_path: output_path.to_string_lossy().to_string(),
+        original_file_name: None,
+    })
+}
+
+/// 启动文件解密任务（后台线程执行，前端通过事件拿进度）。
+#[tauri::command]
+pub fn file_decrypt_start(app: AppHandle, state: State<'_, AppState>, req: FileDecryptRequest) -> Result<FileCryptoStartResponse, String> {
+    // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
+    let plain = load_plain_for_read(&app, &state)?;
+
+    // 注意：后续要把算法传入后台线程，因此这里先转成 owned String，避免引用跨线程导致生命周期问题。
+    let algo = req.algorithm.trim().to_string();
+    if algo.is_empty() {
+        return Err("请选择算法".to_string());
+    }
+    let key_id = req.key_id.trim();
+    if key_id.is_empty() {
+        return Err("请选择密钥".to_string());
+    }
+
+    let encrypted_path = PathBuf::from(req.input_path.trim());
+    if req.input_path.trim().is_empty() {
+        return Err("请选择输入文件".to_string());
+    }
+
+    let default_dir = encrypted_path
+        .parent()
+        .ok_or_else(|| "无法解析输入文件所在目录".to_string())?;
+
+    let output_dir = normalize_output_dir(&req.output_dir, default_dir)?;
+
+    // 先读取 header，用于：
+    // 1) 校验用户选择的算法是否匹配文件
+    // 2) 推导解密输出文件名（还原原始文件名）
+    let header = file_crypto::read_header_only(&encrypted_path)?;
+    let output_path = file_crypto::build_decrypt_output_path(&header, &output_dir)?;
+
+    // 解析密钥材料：提前做参数校验，避免任务启动后才失败。
+    let key = resolve_file_decrypt_key(&plain, &algo, key_id)?;
+
+    // 生成任务 id，并在 AppState 中注册取消标记。
+    let task_id = keystore::generate_entry_id();
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = state
+            .file_crypto_tasks
+            .lock()
+            .map_err(|_| "内部错误：任务状态锁被占用".to_string())?;
+        guard.insert(task_id.clone(), FileCryptoTaskControl { cancel: cancel.clone() });
+    }
+
+    let app2 = app.clone();
+    let task_id2 = task_id.clone();
+    let output_path2 = output_path.clone();
+    let algo2 = algo.clone();
+    std::thread::spawn(move || {
+        let emit_progress = |processed: u64, total: u64| {
+            let _ = app2.emit(
+                EVENT_FILE_CRYPTO_PROGRESS,
+                FileCryptoProgressEvent {
+                    task_id: task_id2.clone(),
+                    stage: "decrypt".to_string(),
+                    processed_bytes: processed,
+                    total_bytes: total,
+                },
+            );
+        };
+
+        let is_canceled = || cancel.load(Ordering::Relaxed);
+
+        let res = file_crypto::decrypt_file_stream(&encrypted_path, &output_path2, key, &algo2, &emit_progress, &is_canceled);
+
+        match res {
+            Ok(file_crypto::FileCryptoOutcome::Completed) => {
+                let _ = app2.emit(
+                    EVENT_FILE_CRYPTO_DONE,
+                    FileCryptoDoneEvent {
+                        task_id: task_id2.clone(),
+                        output_path: output_path2.to_string_lossy().to_string(),
+                    },
+                );
+            }
+            Ok(file_crypto::FileCryptoOutcome::Canceled) => {
+                let _ = app2.emit(EVENT_FILE_CRYPTO_CANCELED, FileCryptoCanceledEvent { task_id: task_id2.clone() });
+            }
+            Err(e) => {
+                let _ = app2.emit(
+                    EVENT_FILE_CRYPTO_ERROR,
+                    FileCryptoErrorEvent {
+                        task_id: task_id2.clone(),
+                        message: e,
+                    },
+                );
+            }
+        }
+
+        {
+            let s = app2.state::<AppState>();
+            if let Ok(mut guard) = s.file_crypto_tasks.lock() {
+                guard.remove(&task_id2);
+            };
+        }
+    });
+
+    Ok(FileCryptoStartResponse {
+        task_id,
+        output_path: output_path.to_string_lossy().to_string(),
+        original_file_name: Some(header.original_file_name().to_string()),
+    })
+}
+
+/// 取消文件加密/解密任务：
+/// - 前端调用后，仅设置 cancel 标记；实际停止发生在后台任务的分块循环内。
+#[tauri::command]
+pub fn file_crypto_cancel(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    let id = task_id.trim();
+    if id.is_empty() {
+        return Err("task_id 不能为空".to_string());
+    }
+
+    let guard = state
+        .file_crypto_tasks
+        .lock()
+        .map_err(|_| "内部错误：任务状态锁被占用".to_string())?;
+
+    let ctrl = guard.get(id).ok_or_else(|| "未找到该任务".to_string())?;
+    ctrl.cancel.store(true, Ordering::Relaxed);
+    Ok(())
 }

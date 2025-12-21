@@ -191,10 +191,42 @@
   },
   "files": {
     "title": "File Crypto",
-    "desc": "Stream encrypt/decrypt large files, output extension .encrypted (to be implemented).",
+    "desc": "Stream encrypt/decrypt large files, output extension .encrypted.",
     "help": {
       "outputExt": "Encrypted output ends with .encrypted; decrypt restores original file name and extension.",
-      "progress": "Progress and cancel will be implemented with streaming."
+      "progress": "Progress and cancel update in real time during streaming.",
+      "hybrid": "RSA / X25519 always use hybrid encryption for files (data is still streamed in chunks).",
+      "keyMatch": "The app validates algorithm/key type compatibility to reduce mistakes."
+    },
+    "ui": {
+      "placeholders": {
+        "inputFile": "Choose a file to encrypt/decrypt…",
+        "outputDir": "(Optional) Leave empty to use the input file's directory…"
+      },
+      "errors": {
+        "locked": "App is locked. Unlock it first.",
+        "selectAlgorithm": "Please select an algorithm",
+        "selectKey": "Please select a key",
+        "selectFile": "Please select a file",
+        "rsaNeedPublic": "RSA encryption requires a public key. Please select an RSA key that includes a public key.",
+        "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA key that includes a private key.",
+        "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key."
+      },
+      "msg": {
+        "startedEncrypt": "Encryption started. Output: {path}",
+        "startedDecrypt": "Decryption started. Output: {path}",
+        "startedDecryptWithName": "Decryption started. Restoring: {name} (Output: {path})",
+        "outputPath": "Output path: {path}",
+        "cancelRequested": "Cancel requested…",
+        "canceled": "Task canceled",
+        "done": "Done: {path}"
+      },
+      "progress": {
+        "title": "Progress",
+        "stageEncrypt": "Encrypt",
+        "stageDecrypt": "Decrypt",
+        "detail": "{stage}: {percent}% ({processed} / {total})"
+      }
     }
   },
   "lock": {

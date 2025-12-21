@@ -13,7 +13,16 @@
   - 用户主动锁定或退出应用时，缓存会被清空；从而达到“下次启动必须再次输入密码”。
 */
 
-use std::sync::Mutex;
+/*
+  补充：文件加密任务状态
+  - 需求要求：文件加密/解密必须支持进度显示与可取消。
+  - 实现策略：每次开始文件任务时生成 task_id，并在内存里记录一个 cancel 标记。
+  - 前端通过 invoke(cancel) 触发取消；后端在流式分块循环中轮询该标记并尽快停止。
+*/
+
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use zeroize::Zeroizing;
 
@@ -40,15 +49,28 @@ pub enum UnlockedKeystore {
     },
 }
 
+/// 文件加密/解密任务控制块：
+/// - cancel：原子取消标记（前端点击取消后置为 true）
+#[derive(Debug, Clone)]
+pub struct FileCryptoTaskControl {
+    pub cancel: Arc<AtomicBool>,
+}
+
 pub struct AppState {
     /// 已解锁的密钥库会话（仅在本次运行内有效）。
     pub unlocked_keystore: Mutex<Option<UnlockedKeystore>>,
+
+    /// 文件加密/解密任务集合：
+    /// - key：task_id（前端用于订阅进度、以及取消）
+    /// - value：任务控制块（目前只包含 cancel 标记）
+    pub file_crypto_tasks: Mutex<HashMap<String, FileCryptoTaskControl>>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
             unlocked_keystore: Mutex::new(None),
+            file_crypto_tasks: Mutex::new(HashMap::new()),
         }
     }
 }

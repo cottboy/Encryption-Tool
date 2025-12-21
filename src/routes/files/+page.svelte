@@ -1,16 +1,445 @@
 <!--
-  文件加密页（占位）：
-  - 需求要求：必须支持大文件“流式分块加密/解密”。
-  - 输出扩展名统一为 .encrypted。
-  - 加密文件内部需保存原始文件名/扩展名，以便解密时还原。
-  - RSA/X25519 在文件场景一律走混合加密（只包裹会话密钥，数据仍用对称流式处理）。
+  文件加密页（按需求文档落地）：
+  - 前端职责：
+    1) 展示 UI（算法/密钥选择、文件与输出目录选择）
+    2) 调用后端命令启动加密/解密任务（invoke）
+    3) 订阅后端事件（progress/done/error/canceled），渲染进度并提供取消按钮
 
-  UI 风格：
-  - 扁平化，不使用卡片堆叠。
+  后端职责（Rust）：
+  - 文件加/解密在 Rust 中完成，采用流式分块，避免大文件一次性读入内存。
 -->
 
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { open } from "@tauri-apps/plugin-dialog";
   import { t } from "$lib/i18n";
+
+  // =====================
+  // 与后端交互的数据结构（保持与 Rust 命令一致）
+  // =====================
+
+  type SupportedAlgorithms = {
+    symmetric: string[];
+    asymmetric: string[];
+  };
+
+  type KeyStoreStatus = {
+    exists: boolean;
+    encrypted: boolean;
+    unlocked: boolean;
+    version: number;
+    key_count: number | null;
+  };
+
+  type KeyEntryPublic = {
+    id: string;
+    label: string;
+    key_type: string;
+    material_kind: string;
+  };
+
+  type FileCryptoStartResponse = {
+    task_id: string;
+    output_path: string;
+    original_file_name: string | null;
+  };
+
+  type FileCryptoProgressEvent = {
+    task_id: string;
+    stage: "encrypt" | "decrypt";
+    processed_bytes: number;
+    total_bytes: number;
+  };
+
+  type FileCryptoDoneEvent = {
+    task_id: string;
+    output_path: string;
+  };
+
+  type FileCryptoErrorEvent = {
+    task_id: string;
+    message: string;
+  };
+
+  type FileCryptoCanceledEvent = {
+    task_id: string;
+  };
+
+  // =====================
+  // 页面状态
+  // =====================
+
+  // 密钥库状态：用于判断是否已锁定（锁定时无法列出密钥、也无法加解密）。
+  let status = $state<KeyStoreStatus | null>(null);
+
+  // 后端支持的算法列表：用于填充算法下拉框。
+  let supportedAlgorithms = $state<string[]>([]);
+
+  // 密钥列表：来自密钥管理页同一个后端接口。
+  let entries = $state<KeyEntryPublic[]>([]);
+
+  // UI 选择：算法 + 密钥 id
+  let selectedAlgorithm = $state<string>("");
+  let selectedKeyId = $state<string>("");
+
+  // 路径输入：
+  // - inputPath：待加密/待解密文件路径（前端通过 dialog 选择）
+  // - outputDir：输出目录（可空，空表示默认同目录）
+  let inputPath = $state<string>("");
+  let outputDir = $state<string>("");
+
+  // outputPath：启动任务后由后端推导并返回，用于 UI 展示“将输出到哪里”。
+  let outputPath = $state<string>("");
+
+  // 提示信息：用于展示错误、取消提示等。
+  let message = $state<string>("");
+
+  // 任务状态：
+  // - busy：正在执行任务（用于禁用 UI，避免重复点击）
+  // - taskId：当前任务 id（用于过滤事件）
+  // - stage：encrypt / decrypt（用于 UI 文案）
+  let busy = $state<boolean>(false);
+  let taskId = $state<string>("");
+  let stage = $state<"" | "encrypt" | "decrypt">("");
+
+  // 进度：
+  // - processedBytes / totalBytes：由后端事件更新（明文维度）
+  let processedBytes = $state<number>(0);
+  let totalBytes = $state<number>(0);
+
+  // 解密任务会返回“将还原的文件名”，这里用于 UI 展示。
+  let decryptOriginalName = $state<string>("");
+
+  function isLocked(): boolean {
+    return !!status?.encrypted && !status?.unlocked;
+  }
+
+  function isRsaFamily(algo: string): boolean {
+    return algo === "RSA2048" || algo === "RSA4096";
+  }
+
+  function filteredEntries(): KeyEntryPublic[] {
+    // 只展示与当前算法匹配的密钥，减少用户选错概率。
+    if (!selectedAlgorithm) return [];
+    return entries.filter((e) => e.key_type === selectedAlgorithm);
+  }
+
+  function canEncryptWithSelectedKey(): boolean {
+    const entry = entries.find((e) => e.id === selectedKeyId);
+    if (!entry) return false;
+
+    // 产品规则：X25519 必须“公钥+私钥”都齐全才允许加/解密（保持与文本页一致）。
+    if (selectedAlgorithm === "X25519") {
+      return entry.material_kind === "x25519_full";
+    }
+
+    // RSA：仅公钥只能加密；仅私钥只能解密；完整都可以。
+    if (isRsaFamily(selectedAlgorithm)) {
+      return entry.material_kind === "rsa_public_only" || entry.material_kind === "rsa_full";
+    }
+
+    // 对称算法：只要是对称密钥即可。
+    return true;
+  }
+
+  function canDecryptWithSelectedKey(): boolean {
+    const entry = entries.find((e) => e.id === selectedKeyId);
+    if (!entry) return false;
+
+    if (selectedAlgorithm === "X25519") {
+      return entry.material_kind === "x25519_full";
+    }
+
+    if (isRsaFamily(selectedAlgorithm)) {
+      return entry.material_kind === "rsa_private_only" || entry.material_kind === "rsa_full";
+    }
+
+    return true;
+  }
+
+  function formatBytes(bytes: number): string {
+    // 说明：简单的字节格式化，用于进度展示；不追求极致精度。
+    if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let v = bytes;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i += 1;
+    }
+    return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function progressPercent(): number {
+    if (!totalBytes || totalBytes <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.round((processedBytes / totalBytes) * 100)));
+  }
+
+  // =====================
+  // 初始化：加载算法列表 + 密钥库状态 + 密钥条目
+  // =====================
+
+  async function refreshStatus() {
+    status = await invoke<KeyStoreStatus>("keystore_status");
+  }
+
+  async function refreshAlgorithms() {
+    const algos = await invoke<SupportedAlgorithms>("get_supported_algorithms");
+    supportedAlgorithms = [...algos.symmetric, ...algos.asymmetric];
+
+    // 默认选择：优先第一个对称算法（更通用），避免页面初次进入为空。
+    if (!selectedAlgorithm && supportedAlgorithms.length > 0) {
+      selectedAlgorithm = supportedAlgorithms[0];
+    }
+  }
+
+  async function refreshEntries() {
+    entries = await invoke<KeyEntryPublic[]>("keystore_list_entries");
+  }
+
+  async function refreshAll() {
+    await refreshStatus();
+    await refreshAlgorithms();
+    await refreshEntries();
+  }
+
+  onMount(() => {
+    // 页面加载时刷新一次。
+    refreshAll().catch((e) => {
+      message = typeof e === "string" ? e : String(e);
+    });
+
+    // 监听“密钥库状态变更”事件（来自布局/密钥管理页）。
+    const onKeystoreChanged = () => {
+      refreshAll().catch(() => {
+        // 忽略：失败时不阻塞 UI。
+      });
+    };
+    window.addEventListener("keystore_status_changed", onKeystoreChanged);
+
+    // 订阅后端事件：进度 / 完成 / 错误 / 取消
+    const unlisteners: UnlistenFn[] = [];
+
+    const setup = async () => {
+      unlisteners.push(
+        await listen<FileCryptoProgressEvent>("file_crypto_progress", (e) => {
+          if (!taskId || e.payload.task_id !== taskId) return;
+          processedBytes = e.payload.processed_bytes;
+          totalBytes = e.payload.total_bytes;
+        })
+      );
+
+      unlisteners.push(
+        await listen<FileCryptoDoneEvent>("file_crypto_done", (e) => {
+          if (!taskId || e.payload.task_id !== taskId) return;
+          outputPath = e.payload.output_path;
+          message = $t("files.ui.msg.done", { path: outputPath });
+          busy = false;
+          taskId = "";
+          stage = "";
+        })
+      );
+
+      unlisteners.push(
+        await listen<FileCryptoErrorEvent>("file_crypto_error", (e) => {
+          if (!taskId || e.payload.task_id !== taskId) return;
+          message = e.payload.message;
+          busy = false;
+          taskId = "";
+          stage = "";
+        })
+      );
+
+      unlisteners.push(
+        await listen<FileCryptoCanceledEvent>("file_crypto_canceled", (e) => {
+          if (!taskId || e.payload.task_id !== taskId) return;
+          message = $t("files.ui.msg.canceled");
+          busy = false;
+          taskId = "";
+          stage = "";
+        })
+      );
+    };
+
+    setup().catch(() => {
+      // 忽略：事件订阅失败时不阻塞 UI，但进度/取消功能会不可用。
+    });
+
+    return () => {
+      window.removeEventListener("keystore_status_changed", onKeystoreChanged);
+      for (const u of unlisteners) u();
+    };
+  });
+
+  // =====================
+  // 文件/目录选择（dialog 插件）
+  // =====================
+
+  async function browseInputFile() {
+    if (busy) return;
+    message = "";
+
+    const picked = await open({
+      multiple: false,
+      directory: false
+    });
+
+    if (!picked) return;
+    inputPath = String(picked);
+  }
+
+  async function browseOutputDir() {
+    if (busy) return;
+    message = "";
+
+    const picked = await open({
+      multiple: false,
+      directory: true
+    });
+
+    if (!picked) return;
+    outputDir = String(picked);
+  }
+
+  // =====================
+  // 启动任务：加密 / 解密 / 取消
+  // =====================
+
+  function resetProgress() {
+    processedBytes = 0;
+    totalBytes = 0;
+  }
+
+  async function startEncrypt() {
+    if (busy) return;
+    message = "";
+    outputPath = "";
+    decryptOriginalName = "";
+    resetProgress();
+
+    if (isLocked()) {
+      message = $t("files.ui.errors.locked");
+      return;
+    }
+
+    if (!selectedAlgorithm) {
+      message = $t("files.ui.errors.selectAlgorithm");
+      return;
+    }
+    if (!selectedKeyId) {
+      message = $t("files.ui.errors.selectKey");
+      return;
+    }
+    if (!canEncryptWithSelectedKey()) {
+      if (selectedAlgorithm === "X25519") {
+        message = $t("files.ui.errors.x25519NeedFull");
+      } else if (isRsaFamily(selectedAlgorithm)) {
+        message = $t("files.ui.errors.rsaNeedPublic");
+      } else {
+        message = $t("files.ui.errors.selectKey");
+      }
+      return;
+    }
+    if (!inputPath.trim()) {
+      message = $t("files.ui.errors.selectFile");
+      return;
+    }
+
+    busy = true;
+    stage = "encrypt";
+
+    try {
+      const res = await invoke<FileCryptoStartResponse>("file_encrypt_start", {
+        req: {
+          algorithm: selectedAlgorithm,
+          key_id: selectedKeyId,
+          input_path: inputPath,
+          output_dir: outputDir.trim() ? outputDir.trim() : null
+        }
+      });
+
+      taskId = res.task_id;
+      outputPath = res.output_path;
+      message = $t("files.ui.msg.startedEncrypt", { path: outputPath });
+    } catch (e) {
+      message = typeof e === "string" ? e : String(e);
+      busy = false;
+      stage = "";
+    }
+  }
+
+  async function startDecrypt() {
+    if (busy) return;
+    message = "";
+    outputPath = "";
+    decryptOriginalName = "";
+    resetProgress();
+
+    if (isLocked()) {
+      message = $t("files.ui.errors.locked");
+      return;
+    }
+
+    if (!selectedAlgorithm) {
+      message = $t("files.ui.errors.selectAlgorithm");
+      return;
+    }
+    if (!selectedKeyId) {
+      message = $t("files.ui.errors.selectKey");
+      return;
+    }
+    if (!canDecryptWithSelectedKey()) {
+      if (selectedAlgorithm === "X25519") {
+        message = $t("files.ui.errors.x25519NeedFull");
+      } else if (isRsaFamily(selectedAlgorithm)) {
+        message = $t("files.ui.errors.rsaNeedPrivate");
+      } else {
+        message = $t("files.ui.errors.selectKey");
+      }
+      return;
+    }
+    if (!inputPath.trim()) {
+      message = $t("files.ui.errors.selectFile");
+      return;
+    }
+
+    busy = true;
+    stage = "decrypt";
+
+    try {
+      const res = await invoke<FileCryptoStartResponse>("file_decrypt_start", {
+        req: {
+          algorithm: selectedAlgorithm,
+          key_id: selectedKeyId,
+          input_path: inputPath,
+          output_dir: outputDir.trim() ? outputDir.trim() : null
+        }
+      });
+
+      taskId = res.task_id;
+      outputPath = res.output_path;
+      decryptOriginalName = res.original_file_name ?? "";
+      message = decryptOriginalName
+        ? $t("files.ui.msg.startedDecryptWithName", { name: decryptOriginalName, path: outputPath })
+        : $t("files.ui.msg.startedDecrypt", { path: outputPath });
+    } catch (e) {
+      message = typeof e === "string" ? e : String(e);
+      busy = false;
+      stage = "";
+    }
+  }
+
+  async function cancel() {
+    if (!taskId) return;
+    try {
+      await invoke("file_crypto_cancel", { taskId });
+      message = $t("files.ui.msg.cancelRequested");
+    } catch (e) {
+      message = typeof e === "string" ? e : String(e);
+    }
+  }
 </script>
 
 <h1 class="h1">{$t("files.title")}</h1>
@@ -21,47 +450,71 @@
 <div class="grid2">
   <div>
     <div class="label">{$t("common.algorithm")}</div>
-    <select disabled>
-      <option>AES-256（流式）</option>
-      <option>ChaCha20（流式）</option>
-      <option>RSA2048（混合加密 + 流式）</option>
-      <option>RSA4096（混合加密 + 流式）</option>
-      <option>X25519（混合加密 + 流式）</option>
+    <select bind:value={selectedAlgorithm} disabled={busy || isLocked()}>
+      {#each supportedAlgorithms as a}
+        <option value={a}>{a}</option>
+      {/each}
     </select>
+    <div class="help">{$t("files.help.hybrid")}</div>
   </div>
 
   <div>
     <div class="label">{$t("common.key")}</div>
-    <select disabled>
-      <option>{$t("common.selectFromKeystore")}</option>
+    <select bind:value={selectedKeyId} disabled={busy || isLocked()}>
+      <option value="">{$t("common.selectFromKeystore")}</option>
+      {#each filteredEntries() as e}
+        <option value={e.id}>{e.label}</option>
+      {/each}
     </select>
+    <div class="help">{$t("files.help.keyMatch")}</div>
   </div>
 </div>
 
 <div style="margin-top: 12px">
   <div class="label">{$t("common.file")}</div>
   <div class="row">
-    <input disabled placeholder={$t("common.notImplemented")} />
-    <button disabled>{$t("common.browse")}</button>
+    <input readonly bind:value={inputPath} placeholder={$t("files.ui.placeholders.inputFile")} />
+    <button onclick={browseInputFile} disabled={busy || isLocked()}>{$t("common.browse")}</button>
   </div>
 </div>
 
 <div style="margin-top: 12px">
   <div class="label">{$t("common.outputDir")}</div>
   <div class="row">
-    <input disabled placeholder={$t("common.notImplemented")} />
-    <button disabled>{$t("common.browse")}</button>
+    <input readonly bind:value={outputDir} placeholder={$t("files.ui.placeholders.outputDir")} />
+    <button onclick={browseOutputDir} disabled={busy || isLocked()}>{$t("common.browse")}</button>
   </div>
   <div class="help">{$t("files.help.outputExt")}</div>
 </div>
 
 <div class="toolbar" style="margin-top: 12px">
-  <button class="primary" disabled>{$t("common.encrypt")}</button>
-  <button disabled>{$t("common.decrypt")}</button>
-  <button disabled>{$t("common.cancel")}</button>
+  <button class="primary" onclick={startEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
+  <button onclick={startDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
+  <button onclick={cancel} disabled={!busy || !taskId}>{$t("common.cancel")}</button>
 </div>
 
-<div class="help" style="margin-top: 10px">{$t("files.help.progress")}</div>
+{#if busy}
+  <div style="margin-top: 10px">
+    <div class="label">{$t("files.ui.progress.title")}</div>
+    <progress max="100" value={progressPercent()} style="width: 100%"></progress>
+    <div class="help" style="margin-top: 6px">
+      {$t("files.ui.progress.detail", {
+        stage: stage === "encrypt" ? $t("files.ui.progress.stageEncrypt") : $t("files.ui.progress.stageDecrypt"),
+        percent: progressPercent(),
+        processed: formatBytes(processedBytes),
+        total: formatBytes(totalBytes)
+      })}
+    </div>
+  </div>
+{/if}
+
+{#if outputPath}
+  <div class="help" style="margin-top: 10px">{$t("files.ui.msg.outputPath", { path: outputPath })}</div>
+{/if}
+
+{#if message}
+  <div class="help" style="margin-top: 10px; color: #0b4db8">{message}</div>
+{/if}
 
 <style>
   .label {

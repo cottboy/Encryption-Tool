@@ -5,6 +5,7 @@
 */
 
 mod commands;
+mod file_crypto;
 mod keystore;
 mod state;
 mod text_crypto;
@@ -44,6 +45,10 @@ pub fn run() {
             // 文本加密/解密（后端执行）
             commands::text_encrypt,
             commands::text_decrypt,
+            // 文件加密/解密（后端执行，流式分块）
+            commands::file_encrypt_start,
+            commands::file_decrypt_start,
+            commands::file_crypto_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用时发生错误");
