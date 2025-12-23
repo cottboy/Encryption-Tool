@@ -251,8 +251,13 @@
       - 但全局 select 会为自定义箭头预留右侧空间（padding-right）。
       - 这里必须把 padding-right 单独补回来，否则文字会被箭头遮挡，也会显得“贴边”。
     */
-    padding: 6px 10px;
-    padding-right: 28px;
+    /*
+      全局单选 select 会固定高度为 40px 来保证文字垂直居中（更稳定），
+      但顶部语言切换需要更紧凑，因此这里覆盖为更小的高度与对应的 line-height。
+    */
+    height: 30px;
+    padding: 0 28px 0 10px;
+    line-height: 28px;
 
     /* 对齐紧凑尺寸下的箭头位置：右侧留白更自然 */
     background-position: right 10px center;

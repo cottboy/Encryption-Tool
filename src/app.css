@@ -136,6 +136,20 @@ select:not([multiple]):not([size]) {
   */
   padding-right: 38px;
 
+  /*
+    统一下拉框文字的垂直居中（解决“文字偏下/不在中间”的观感）：
+    - select 在不同平台的内部排版（尤其是 Windows WebView2）对 padding/line-height 的处理不完全一致，
+      可能导致文字基线看起来偏下。
+    - 这里采用“固定高度 + 0 上下内边距 + line-height 等于可用高度”的组合，让文字视觉上更稳定地居中。
+
+    约束：
+    - 仅作用于单选下拉框；多选/列表型 select 仍沿用原生滚动布局。
+    - 水平对齐保持默认左对齐（更符合常见表单习惯）；如你希望水平也居中，我可以加一个可选 class 开关。
+  */
+  height: 40px;
+  padding: 0 38px 0 12px;
+  line-height: 38px;
+
   /* 自定义箭头：用 SVG 画一个“向下的 V”，更接近 macOS 的克制风格 */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%236b6b73' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
