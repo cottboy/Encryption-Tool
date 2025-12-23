@@ -351,7 +351,13 @@
 
   <div class="field">
     <div class="label">{$t("common.key")}</div>
-    <select bind:value={selectedKeyId} disabled={busy || isLocked()}>
+    <!--
+      密钥选择下拉框：
+      - 用户反馈在 Windows WebView2 下，“从密钥库选择/密钥项”的文字基线看起来偏下。
+      - 全局 select 已做统一高度/行高，但不同字体的字形度量会导致个别文案仍有轻微偏差。
+      - 这里给该下拉框单独加 class，并做 1px 级别的微调，让视觉更接近“垂直居中”。
+    -->
+    <select class="key-select" bind:value={selectedKeyId} disabled={busy || isLocked()}>
       <option value="">{$t("common.selectFromKeystore")}</option>
       {#each filteredEntries() as e}
         <option value={e.id}>{keyOptionLabel(e)}</option>
@@ -403,6 +409,16 @@
 
   .field select {
     width: 100%;
+  }
+
+  /*
+    密钥下拉框的“垂直居中”微调：
+    - 仅影响文字的视觉基线，不改变整体控件高度（全局已固定为 40px）。
+    - 由于全局开启了 box-sizing: border-box，给 padding-top 1px 不会让控件变高，只会在内部做轻微上移。
+  */
+  .key-select {
+    padding-top: 1px;
+    line-height: 37px;
   }
 
   .actions {

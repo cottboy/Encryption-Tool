@@ -23,7 +23,7 @@
     "file": "Input",
     "outputDir": "Output",
     "password": "Password",
-    "selectFromKeystore": "(Select from keystore)",
+    "selectFromKeystore": "Select from keystore",
     "none": "None",
     "ok": "OK",
     "cancel": "Cancel",

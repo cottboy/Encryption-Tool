@@ -460,7 +460,12 @@
 
   <div>
     <div class="label">{$t("common.key")}</div>
-    <select bind:value={selectedKeyId} disabled={busy || isLocked()}>
+    <!--
+      密钥选择下拉框：
+      - 与“文本加密”页一致，用户反馈该下拉框在部分环境文字略偏下。
+      - 通过单独 class 做 1px 级别的基线微调，确保视觉垂直居中更一致。
+    -->
+    <select class="key-select" bind:value={selectedKeyId} disabled={busy || isLocked()}>
       <option value="">{$t("common.selectFromKeystore")}</option>
       {#each filteredEntries() as e}
         <option value={e.id}>{e.label}</option>
@@ -521,6 +526,16 @@
     font-size: 12px;
     color: var(--muted);
     margin-bottom: 6px;
+  }
+
+  /*
+    密钥下拉框的“垂直居中”微调：
+    - 原因与 text 页相同：不同字体/字形度量下，个别中文文案的基线会显得偏下。
+    - 这里保持整体高度不变，仅对内部文字做轻微上移。
+  */
+  .key-select {
+    padding-top: 1px;
+    line-height: 37px;
   }
 
   .row {
