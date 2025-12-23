@@ -113,6 +113,42 @@ textarea {
   outline: none;
 }
 
+/*
+  下拉框（select）统一外观与“箭头”对齐：
+  - 现象：在部分 WebView（尤其是 Windows WebView2）里，给 select 设置较大的上下 padding 后，
+    原生下拉箭头的垂直居中会出现偏移，看起来“靠上/贴边”，不同页面还可能不一致。
+  - 目标：所有使用下拉框的地方（算法、密钥、语言等）箭头统一“垂直居中 + 右侧留白一致”，视觉更干净。
+  - 做法：移除原生箭头（appearance: none），用背景 SVG 绘制统一的 chevron，并用 background-position 精确控制位置。
+
+  注意：
+  - 仅对“单选下拉框”生效：排除 [multiple] 与带 [size] 的列表型 select，避免破坏其原生滚动/多选体验。
+  - 颜色使用 --muted，保持简约灰白系；后续若引入暗色主题，可在变量层统一调整。
+*/
+select:not([multiple]):not([size]) {
+  /* 去除各平台原生外观（包含默认箭头），以便使用自定义箭头保证对齐一致 */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  /*
+    预留右侧空间给箭头：
+    - padding-right 单独写而不是用 padding 简写，方便局部样式（例如 .locale select）只覆盖部分 padding 时仍可继承。
+  */
+  padding-right: 38px;
+
+  /* 自定义箭头：用 SVG 画一个“向下的 V”，更接近 macOS 的克制风格 */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%236b6b73' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  /* 关键：把箭头固定在“右侧 12px + 垂直居中”，避免出现靠上/贴边的问题 */
+  background-position: right 12px center;
+  background-size: 12px 12px;
+}
+
+/* 兼容极少数旧环境（IE/旧 Edge）会渲染额外的展开箭头：这里显式隐藏 */
+select::-ms-expand {
+  display: none;
+}
+
 textarea {
   resize: vertical;
 }
