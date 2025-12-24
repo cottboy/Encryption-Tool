@@ -448,13 +448,22 @@
   }
 
   async function cancel() {
-    if (!taskId) return;
+    /*
+      取消按钮的两种语义（按用户反馈统一体验）：
+      1) 正在执行任务：向后端发送取消请求，并清理“已选择文件/输出信息”，避免用户误以为没有取消。
+      2) 未执行任务：作为“清空选择”的快捷操作，直接清空已选文件/输出目录/输出提示。
+    */
+    if (!taskId) {
+      clearPickedFileAndOutput();
+      message = "";
+      return;
+    }
+
+    // UI 先即时清空：就算后端取消需要一点时间，用户也能立刻感知“已开始取消”。
+    clearPickedFileAndOutput();
     try {
       await invoke("file_crypto_cancel", { taskId });
       message = $t("files.ui.msg.cancelRequested");
-
-      // 取消任务时同步清空“已选择文件”相关 UI，避免用户误以为取消无效。
-      clearPickedFileAndOutput();
     } catch (e) {
       message = typeof e === "string" ? e : String(e);
     }
@@ -503,7 +512,12 @@
     <div class="btn-row">
       <button class="primary" onclick={startEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
       <button onclick={startDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
-      <button onclick={cancel} disabled={!busy || !taskId}>{$t("common.cancel")}</button>
+      <!--
+        取消按钮：
+        - busy 且 taskId 为空：说明任务还没拿到 id（比如启动请求尚未返回），此时不能取消，避免发空请求。
+        - 其它情况允许点击：未启动任务时也可作为“清空选择”使用。
+      -->
+      <button onclick={cancel} disabled={busy && !taskId}>{$t("common.cancel")}</button>
     </div>
   </div>
 </div>
