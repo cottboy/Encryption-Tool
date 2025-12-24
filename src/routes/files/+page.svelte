@@ -307,6 +307,22 @@
   // 启动任务：加密 / 解密 / 取消
   // =====================
 
+  function clearPickedFileAndOutput() {
+    /*
+      清理“已选择的文件/目录/输出信息”：
+      - 用户反馈：点击“取消”后，界面仍然保留已选择的文件路径，观感上像“没有取消成功”。
+      - 这里把与本次任务/选择强相关的字段统一清空，避免状态残留影响下一次操作。
+
+      说明：
+      - 不清空算法/密钥选择：取消任务≠重置配置；用户通常希望保留算法/密钥快速重试。
+    */
+    inputPath = "";
+    outputDir = "";
+    outputPath = "";
+    decryptOriginalName = "";
+    resetProgress();
+  }
+
   function resetProgress() {
     processedBytes = 0;
     totalBytes = 0;
@@ -436,6 +452,9 @@
     try {
       await invoke("file_crypto_cancel", { taskId });
       message = $t("files.ui.msg.cancelRequested");
+
+      // 取消任务时同步清空“已选择文件”相关 UI，避免用户误以为取消无效。
+      clearPickedFileAndOutput();
     } catch (e) {
       message = typeof e === "string" ? e : String(e);
     }
@@ -447,8 +466,13 @@
 
 <div class="divider" style="margin: 14px 0"></div>
 
-<div class="grid2">
-  <div>
+<!--
+  顶部控制区：对齐“文本加密”页的布局（算法 / 密钥 / 按钮同一行）
+  - 桌面端窗口较宽时，一行更符合用户操作习惯。
+  - 窗口变窄时允许换行（flex-wrap），避免控件被挤压到难以点击。
+-->
+<div class="controls" aria-label={$t("files.title")}>
+  <div class="field">
     <div class="label">{$t("common.algorithm")}</div>
     <select bind:value={selectedAlgorithm} disabled={busy || isLocked()}>
       {#each supportedAlgorithms as a}
@@ -458,7 +482,7 @@
     <div class="help">{$t("files.help.hybrid")}</div>
   </div>
 
-  <div>
+  <div class="field">
     <div class="label">{$t("common.key")}</div>
     <!--
       密钥选择下拉框：
@@ -472,6 +496,15 @@
       {/each}
     </select>
     <div class="help">{$t("files.help.keyMatch")}</div>
+  </div>
+
+  <div class="actions">
+    <div class="label" style="opacity: 0">.</div>
+    <div class="btn-row">
+      <button class="primary" onclick={startEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
+      <button onclick={startDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
+      <button onclick={cancel} disabled={!busy || !taskId}>{$t("common.cancel")}</button>
+    </div>
   </div>
 </div>
 
@@ -490,12 +523,6 @@
     <button onclick={browseOutputDir} disabled={busy || isLocked()}>{$t("common.browse")}</button>
   </div>
   <div class="help">{$t("files.help.outputExt")}</div>
-</div>
-
-<div class="toolbar" style="margin-top: 12px">
-  <button class="primary" onclick={startEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
-  <button onclick={startDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
-  <button onclick={cancel} disabled={!busy || !taskId}>{$t("common.cancel")}</button>
 </div>
 
 {#if busy}
@@ -528,6 +555,26 @@
     margin-bottom: 6px;
   }
 
+  .controls {
+    display: flex;
+    gap: var(--gap);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .field {
+    /*
+      与“文本加密”页保持一致的宽度策略：
+      - 两个下拉框等分剩余空间，避免一个短一个长。
+    */
+    flex: 1 1 260px;
+    min-width: 220px;
+  }
+
+  .field select {
+    width: 100%;
+  }
+
   /*
     密钥下拉框的“垂直居中”微调：
     - 原因与 text 页相同：不同字体/字形度量下，个别中文文案的基线会显得偏下。
@@ -536,6 +583,18 @@
   .key-select {
     padding-top: 1px;
     line-height: 37px;
+  }
+
+  .actions {
+    margin-left: auto;
+    min-width: 220px;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: var(--gap);
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 
   .row {

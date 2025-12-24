@@ -320,6 +320,18 @@
     }
   }
 
+  function clearText() {
+    /*
+      清空输入/输出：
+      - 用户希望一键清理输入框里的内容，方便重新粘贴/重新加解密。
+      - 这里同时清空输出与提示信息，避免“上一次结果/提示”残留造成误解。
+      - 不清空算法/密钥选择：多数场景是同一算法/同一密钥下反复操作。
+    */
+    inputText = "";
+    outputText = "";
+    message = "";
+  }
+
   function keyOptionLabel(e: KeyEntryPublic): string {
     // 下拉选项附带“仅公钥/仅私钥/完整”，减少用户选错。
     if (e.material_kind !== "symmetric") {
@@ -371,6 +383,7 @@
     <div class="btn-row">
       <button class="primary" onclick={doEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
       <button onclick={doDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
+      <button onclick={clearText} disabled={busy || isLocked()}>{$t("common.clear")}</button>
     </div>
   </div>
 </div>
@@ -404,6 +417,13 @@
   }
 
   .field {
+    /*
+      控制区两列（算法/密钥）宽度统一：
+      - 之前 .field 只设 min-width，在 flex 容器里会按“内容的固有宽度”伸缩，
+        导致算法下拉框、密钥下拉框看起来一长一短（尤其是占位文案较长时更明显）。
+      - 这里改为可伸缩的等分列：保证两个下拉框在同一行时宽度一致，整体更整齐。
+    */
+    flex: 1 1 260px;
     min-width: 220px;
   }
 
