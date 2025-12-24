@@ -601,14 +601,19 @@
 
   .actions {
     margin-left: auto;
-    min-width: 220px;
+    /*
+      与“文本加密”页对齐：actions 区最小宽度一致，避免 files 页的两个下拉框看起来略短。
+      说明：actions 的 min-width 越大，会挤占算法/密钥区域的可用宽度。
+    */
+    min-width: 200px;
   }
 
   .btn-row {
     display: flex;
     gap: var(--gap);
     justify-content: flex-end;
-    flex-wrap: wrap;
+    /* 与“文本加密”页一致：按钮不换行，保持同一行对齐更稳定 */
+    flex-wrap: nowrap;
   }
 
   .row {
