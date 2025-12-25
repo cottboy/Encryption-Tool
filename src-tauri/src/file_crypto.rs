@@ -51,6 +51,10 @@ const FILE_MAGIC: &[u8; 4] = b"ETEN";
 /// - 说明：不是“最终最优值”，但足够在大文件场景下避免内存暴涨。
 const DEFAULT_CHUNK_SIZE: u32 = 1024 * 1024;
 
+/// 进度回调间隔：每处理多少字节才回调一次进度（避免事件发送过于频繁）。
+/// - 说明：设置为 10 MiB，对于大文件可以显著减少事件数量，同时保持进度条流畅。
+const PROGRESS_CALLBACK_INTERVAL: u64 = 10 * 1024 * 1024;
+
 /// AEAD tag 长度（AES-GCM 与 ChaCha20-Poly1305 均为 16 字节）。
 const AEAD_TAG_SIZE: usize = 16;
 
@@ -379,6 +383,9 @@ pub fn encrypt_file_stream(
         let mut buf = vec![0u8; chunk_size];
         let mut counter: u32 = 0;
 
+        // 进度回调节流：记录上次回调时的处理字节数，避免事件发送过于频繁。
+        let mut last_progress_report: u64 = 0;
+
         // 初始进度：让 UI 立刻显示 0%。
         on_progress(0, total);
 
@@ -400,10 +407,20 @@ pub fn encrypt_file_stream(
             out.write_all(&ct).map_err(|e| format!("写入输出文件失败：{e}"))?;
 
             processed = processed.saturating_add(n as u64);
-            on_progress(processed, total);
+
+            // 进度回调节流：只有当处理字节数增加超过阈值时才回调，减少事件发送频率。
+            // 说明：对于小文件（< 10 MiB）会在循环结束后统一回调最终进度。
+            if processed - last_progress_report >= PROGRESS_CALLBACK_INTERVAL {
+                on_progress(processed, total);
+                last_progress_report = processed;
+            }
         }
 
         out.flush().map_err(|e| format!("写入输出文件失败：{e}"))?;
+
+        // 最终进度：确保 UI 显示 100%（避免因节流导致进度卡在 99%）。
+        on_progress(processed, total);
+
         Ok(FileCryptoOutcome::Completed)
     })();
 
@@ -543,8 +560,19 @@ pub fn decrypt_file_stream(
         let chunk_size = header.chunk_size() as u64;
         let nonce_prefix = header.nonce_prefix().map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
 
+        // 安全检查：防止恶意文件声明超大 chunk_size 导致内存分配失败。
+        // 说明：正常情况下 chunk_size 应该等于 DEFAULT_CHUNK_SIZE (1 MiB)，
+        // 这里允许一定的容差（比如未来版本可能调整分块大小），但不允许超过 10 MiB。
+        const MAX_ALLOWED_CHUNK_SIZE: u64 = 10 * 1024 * 1024;
+        if chunk_size > MAX_ALLOWED_CHUNK_SIZE {
+            return Err(DECRYPT_FAIL_MSG.to_string());
+        }
+
         let mut processed: u64 = 0;
         let mut counter: u32 = 0;
+
+        // 进度回调节流：记录上次回调时的处理字节数，避免事件发送过于频繁。
+        let mut last_progress_report: u64 = 0;
 
         // 初始进度：让 UI 立刻显示 0%。
         on_progress(0, total);
@@ -557,6 +585,12 @@ pub fn decrypt_file_stream(
             let remaining = total - processed;
             let plain_len = std::cmp::min(chunk_size, remaining) as usize;
             let ct_len = plain_len + AEAD_TAG_SIZE;
+
+            // 安全检查：再次确认即将分配的缓冲区大小在合理范围内。
+            // 说明：这是防御性编程，避免因整数溢出或其他边界情况导致的内存问题。
+            if ct_len > MAX_ALLOWED_CHUNK_SIZE as usize + AEAD_TAG_SIZE {
+                return Err(DECRYPT_FAIL_MSG.to_string());
+            }
 
             let mut ct = vec![0u8; ct_len];
             r.read_exact(&mut ct).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
@@ -571,10 +605,20 @@ pub fn decrypt_file_stream(
             out.write_all(&pt).map_err(|e| format!("写入输出文件失败：{e}"))?;
 
             processed = processed.saturating_add(plain_len as u64);
-            on_progress(processed, total);
+
+            // 进度回调节流：只有当处理字节数增加超过阈值时才回调，减少事件发送频率。
+            // 说明：对于小文件（< 10 MiB）会在循环结束后统一回调最终进度。
+            if processed - last_progress_report >= PROGRESS_CALLBACK_INTERVAL {
+                on_progress(processed, total);
+                last_progress_report = processed;
+            }
         }
 
         out.flush().map_err(|e| format!("写入输出文件失败：{e}"))?;
+
+        // 最终进度：确保 UI 显示 100%（避免因节流导致进度卡在 99%）。
+        on_progress(processed, total);
+
         Ok(FileCryptoOutcome::Completed)
     })();
 
