@@ -81,9 +81,6 @@
       "lockTitle": "密钥库加密",
       "enableLock": "加密密钥库",
       "disableLock": "取消加密",
-      "enabledUnlocked": "已启用（已解锁）",
-      "enabledLocked": "已启用（未解锁）",
-      "disabled": "未启用",
       "detailTitle": "密钥详情",
       "actions": {
         "preview": "预览密钥",

@@ -81,9 +81,6 @@
       "lockTitle": "Keystore Encryption",
       "enableLock": "Encrypt Keystore",
       "disableLock": "Remove Encryption",
-      "enabledUnlocked": "Enabled (unlocked)",
-      "enabledLocked": "Enabled (locked)",
-      "disabled": "Disabled",
       "detailTitle": "Key Details",
       "actions": {
         "preview": "Preview key",
