@@ -159,10 +159,6 @@
   "text": {
     "title": "Text Crypto",
     "desc": "Encrypt/decrypt text with a selected algorithm and key.",
-    "help": {
-      "keyMismatch": "When decrypting with the wrong key, show 'wrong key or data corrupted'.",
-      "algoMatch": "The app validates algorithm/key type compatibility."
-    },
     "ui": {
       "controls": "Text crypto controls",
       "placeholders": {
@@ -189,12 +185,9 @@
   },
   "files": {
     "title": "File Crypto",
-    "desc": "Stream encrypt/decrypt large files, output extension .encrypted.",
+    "desc": "Stream encrypt/decrypt large files.",
     "help": {
-      "outputExt": "Encrypted output ends with .encrypted; decrypt restores original file name and extension.",
-      "progress": "Progress and cancel update in real time during streaming.",
-      "hybrid": "RSA / X25519 always use hybrid encryption for files (data is still streamed in chunks).",
-      "keyMatch": "The app validates algorithm/key type compatibility to reduce mistakes."
+      "progress": "Progress and cancel update in real time during streaming."
     },
     "ui": {
       "placeholders": {
