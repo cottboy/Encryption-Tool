@@ -429,14 +429,6 @@
     message = "";
     openLockDialog();
   }}>{status?.encrypted ? $t("keys.ui.disableLock") : $t("keys.ui.enableLock")}</button>
-
-  <div class="help" style="margin-left: 6px">
-    {#if status?.encrypted}
-      {status.unlocked ? $t("keys.ui.enabledUnlocked") : $t("keys.ui.enabledLocked")}
-    {:else}
-      {$t("keys.ui.disabled")}
-    {/if}
-  </div>
 </div>
 
 <div class="divider" style="margin: 14px 0"></div>
