@@ -13,7 +13,7 @@
 
   加密方案：
   - KDF：Argon2id
-  - AEAD：ChaCha20-Poly1305（认证加密，防篡改）
+  - AEAD：AES-256-GCM（认证加密，防篡改）
 
   重要实现细节（写回加密库）：
   - 解锁后，我们不会保存用户明文密码。
@@ -25,9 +25,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use argon2::{Algorithm, Argon2, Params, Version};
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Key as AesKey, Nonce as AesNonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use chacha20poly1305::aead::{Aead, KeyInit};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -128,7 +129,7 @@ pub struct KdfParams {
     pub parallelism: u32,
 }
 
-/// AEAD 参数（当前使用 ChaCha20-Poly1305）。
+/// AEAD 参数（当前使用 AES-256-GCM；同时兼容旧的 ChaCha20-Poly1305 文件）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AeadParams {
     pub algorithm: String,
@@ -304,16 +305,17 @@ pub fn encrypt_with_derived_key(
     let mut nonce = [0u8; 12];
     OsRng.fill_bytes(&mut nonce);
 
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(derived_key));
+    // 密钥库 AEAD：统一使用 AES-256-GCM（nonce 12 字节）。
+    let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(derived_key));
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext.as_ref())
+        .encrypt(AesNonce::from_slice(&nonce), plaintext.as_ref())
         .map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
 
     Ok(KeyStoreFile::Encrypted {
         version: KEYSTORE_VERSION,
         kdf: kdf.clone(),
         aead: AeadParams {
-            algorithm: "chacha20poly1305".to_string(),
+            algorithm: "aes256gcm".to_string(),
             nonce_b64: B64.encode(nonce),
         },
         ciphertext_b64: B64.encode(ciphertext),
@@ -350,9 +352,10 @@ pub fn encrypt_with_new_password(plain: &KeyStorePlain, password: &str) -> Resul
     let mut nonce = [0u8; 12];
     OsRng.fill_bytes(&mut nonce);
 
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
+    // 密钥库 AEAD：统一使用 AES-256-GCM（nonce 12 字节）。
+    let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(&key_bytes));
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext.as_ref())
+        .encrypt(AesNonce::from_slice(&nonce), plaintext.as_ref())
         .map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
 
     let kdf = KdfParams {
@@ -367,7 +370,7 @@ pub fn encrypt_with_new_password(plain: &KeyStorePlain, password: &str) -> Resul
         version: KEYSTORE_VERSION,
         kdf: kdf.clone(),
         aead: AeadParams {
-            algorithm: "chacha20poly1305".to_string(),
+            algorithm: "aes256gcm".to_string(),
             nonce_b64: B64.encode(nonce),
         },
         ciphertext_b64: B64.encode(ciphertext),
@@ -411,7 +414,10 @@ fn decrypt_keystore_return_key(
     if kdf.algorithm != "argon2id" {
         return Err(KeyStoreError::Crypto(format!("不支持的 KDF：{}", kdf.algorithm)));
     }
-    if aead.algorithm != "chacha20poly1305" {
+    // 兼容策略：
+    // - 新版本默认写入 aes256gcm
+    // - 旧版本文件可能是 chacha20poly1305（保留解密兼容，避免升级后“打不开旧库”）
+    if aead.algorithm != "aes256gcm" && aead.algorithm != "chacha20poly1305" {
         return Err(KeyStoreError::Crypto(format!("不支持的 AEAD：{}", aead.algorithm)));
     }
 
@@ -441,10 +447,24 @@ fn decrypt_keystore_return_key(
         kdf.parallelism,
     )?;
 
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
-    let plaintext = cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
-        .map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
+    let plaintext = match aead.algorithm.as_str() {
+        "aes256gcm" => {
+            let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(&key_bytes));
+            cipher
+                .decrypt(AesNonce::from_slice(&nonce), ciphertext.as_ref())
+                .map_err(|_| KeyStoreError::PasswordOrDataInvalid)?
+        }
+        "chacha20poly1305" => {
+            let cipher = ChaCha20Poly1305::new(ChaChaKey::from_slice(&key_bytes));
+            cipher
+                .decrypt(ChaChaNonce::from_slice(&nonce), ciphertext.as_ref())
+                .map_err(|_| KeyStoreError::PasswordOrDataInvalid)?
+        }
+        _ => {
+            // 上面已拦截，这里是防御性分支。
+            return Err(KeyStoreError::Crypto(format!("不支持的 AEAD：{}", aead.algorithm)));
+        }
+    };
 
     let plain: KeyStorePlain = serde_json::from_slice(&plaintext).map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
 

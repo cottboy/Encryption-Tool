@@ -36,6 +36,8 @@ serde_json = "1"
 argon2 = "0.5"
 
 # AEAD：用于对密钥库整体进行认证加密（防篡改）。
+# - 密钥库当前使用 AES-256-GCM（见 src/keystore.rs）
+# - ChaCha20-Poly1305 仍用于“文本/文件加密算法选项”，并用于解密兼容旧版密钥库文件
 chacha20poly1305 = { version = "0.10", features = ["std"] }
 
 # 随机数：生成 salt/nonce、以及生成密钥/ID。
@@ -69,6 +71,5 @@ aes-gcm = { version = "0.10", features = ["std"] }
 sha2 = "0.10"
 # - HKDF：X25519 共享密钥 → 会话密钥派生
 hkdf = "0.12"
-
 
 
