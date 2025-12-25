@@ -488,7 +488,6 @@
         <option value={a}>{a}</option>
       {/each}
     </select>
-    <div class="help">{$t("files.help.hybrid")}</div>
   </div>
 
   <div class="field">
@@ -504,7 +503,6 @@
         <option value={e.id}>{e.label}</option>
       {/each}
     </select>
-    <div class="help">{$t("files.help.keyMatch")}</div>
   </div>
 
   <div class="actions">
@@ -536,7 +534,6 @@
     <input readonly bind:value={outputDir} placeholder={$t("files.ui.placeholders.outputDir")} />
     <button onclick={browseOutputDir} disabled={busy || isLocked()}>{$t("common.browse")}</button>
   </div>
-  <div class="help">{$t("files.help.outputExt")}</div>
 </div>
 
 {#if busy}

@@ -15,7 +15,7 @@
     "remove": "Remove",
     "encrypt": "Encrypt",
     "decrypt": "Decrypt",
-    "browse": "Browse…",
+    "browse": "Browse",
     "algorithm": "Algorithm",
     "key": "Key",
     "input": "Input",
@@ -166,8 +166,8 @@
     "ui": {
       "controls": "Text crypto controls",
       "placeholders": {
-        "input": "Enter text here…",
-        "output": "Result will appear here…"
+        "input": "Enter text here",
+        "output": "Result will appear here"
       },
       "keyHint": {
         "rsaPublic": "(public)",
@@ -198,8 +198,8 @@
     },
     "ui": {
       "placeholders": {
-        "inputFile": "Choose a file to encrypt/decrypt…",
-        "outputDir": "(Optional) Leave empty to use the input file's directory…"
+        "inputFile": "Choose a file to encrypt/decrypt",
+        "outputDir": "Leave empty to use the input file's directory"
       },
       "errors": {
         "locked": "App is locked. Unlock it first.",

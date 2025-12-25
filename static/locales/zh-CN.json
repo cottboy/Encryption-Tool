@@ -15,7 +15,7 @@
     "remove": "移除",
     "encrypt": "加密",
     "decrypt": "解密",
-    "browse": "浏览…",
+    "browse": "浏览",
     "algorithm": "算法",
     "key": "密钥",
     "input": "输入",
@@ -166,8 +166,8 @@
     "ui": {
       "controls": "文本加密控制区",
       "placeholders": {
-        "input": "在此输入待处理文本…",
-        "output": "结果会显示在这里…"
+        "input": "在此输入待处理文本",
+        "output": "结果会显示在这里"
       },
       "keyHint": {
         "rsaPublic": "（公钥）",
@@ -198,8 +198,8 @@
     },
     "ui": {
       "placeholders": {
-        "inputFile": "请选择待加密/解密的文件…",
-        "outputDir": "（可选）不选择则默认与输入文件同目录…"
+        "inputFile": "请选择待加密/解密的文件",
+        "outputDir": "不选择则默认与输入文件同目录"
       },
       "errors": {
         "locked": "应用已锁定：请先在锁屏层输入密码解锁",

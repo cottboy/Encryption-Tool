@@ -358,7 +358,6 @@
         <option value={a}>{a}</option>
       {/each}
     </select>
-    <div class="help">{$t("text.help.algoMatch")}</div>
   </div>
 
   <div class="field">
@@ -375,7 +374,6 @@
         <option value={e.id}>{keyOptionLabel(e)}</option>
       {/each}
     </select>
-    <div class="help">{$t("text.help.keyMismatch")}</div>
   </div>
 
   <div class="actions">
