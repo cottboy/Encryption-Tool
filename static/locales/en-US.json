@@ -86,7 +86,6 @@
         "export": "Export key"
       },
       "emptyKeys": "No keys yet.",
-      "emptyHint": "Keys will appear after you generate/import them.",
       "status": "Status",
       "keyCount": "Key count",
       "version": "Version",

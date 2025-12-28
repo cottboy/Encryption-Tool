@@ -86,7 +86,6 @@
         "export": "导出密钥"
       },
       "emptyKeys": "当前还没有密钥。",
-      "emptyHint": "下一步实现“生成/导入”后这里会出现条目。",
       "status": "状态",
       "keyCount": "密钥数量",
       "version": "版本",

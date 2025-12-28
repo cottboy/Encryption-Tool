@@ -434,8 +434,14 @@
 
 <div class="list">
   {#if entries.length === 0}
-    <p class="help">{$t("keys.ui.emptyKeys")}</p>
-    <p class="help">{$t("keys.ui.emptyHint")}</p>
+    <!--
+      空状态提示：
+      - 当密钥库还没有任何条目时，展示引导文案。
+      - 这里用单独容器包起来，便于做与表格一致的内边距，让文字不要“贴边”。
+    -->
+    <div class="list-empty">
+      <p class="help">{$t("keys.ui.emptyKeys")}</p>
+    </div>
   {:else}
     <table class="table">
       <thead>
@@ -729,6 +735,23 @@
 
   .clickable:hover td {
     background: rgba(0, 0, 0, 0.03);
+  }
+
+  .list-empty {
+    /*
+      空状态布局：
+      - 目标：与表格单元格（th/td）的左右 padding 对齐，看起来更整齐。
+      - 同时去掉 p 的默认 margin，避免出现奇怪的“空隙不一致”。
+    */
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .list-empty .help {
+    /* 只影响空状态里的 help，避免影响页面其他位置的提示文案 */
+    margin: 0;
   }
 
   textarea {
