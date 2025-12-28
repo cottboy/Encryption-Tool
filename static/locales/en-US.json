@@ -38,7 +38,6 @@
   },
   "keys": {
     "title": "Key Management",
-    "desc": "Manage keystores, generate/import/export keys, and optionally encrypt the keystore with a password.",
     "create": {
       "title": "Create Keystore",
       "name": "Name",
@@ -158,7 +157,6 @@
   },
   "text": {
     "title": "Text Crypto",
-    "desc": "Encrypt/decrypt text.",
     "ui": {
       "controls": "Text crypto controls",
       "placeholders": {
@@ -185,7 +183,6 @@
   },
   "files": {
     "title": "File Crypto",
-    "desc": "Stream encrypt/decrypt large files.",
     "help": {
       "progress": "Progress and cancel update in real time during streaming."
     },

@@ -342,7 +342,6 @@
 </script>
 
 <h1 class="h1">{$t("text.title")}</h1>
-<p class="help">{$t("text.desc")}</p>
 
 <div class="divider" style="margin: 14px 0"></div>
 

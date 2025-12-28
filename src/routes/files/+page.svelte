@@ -471,7 +471,6 @@
 </script>
 
 <h1 class="h1">{$t("files.title")}</h1>
-<p class="help">{$t("files.desc")}</p>
 
 <div class="divider" style="margin: 14px 0"></div>
 

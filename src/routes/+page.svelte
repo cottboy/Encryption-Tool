@@ -412,7 +412,6 @@
 </script>
 
 <h1 class="h1">{$t("keys.title")}</h1>
-<p class="help">{$t("keys.desc")}</p>
 
 <div class="toolbar" style="margin-top: 12px">
   <button class="primary" onclick={() => {
