@@ -61,6 +61,17 @@ const AEAD_TAG_SIZE: usize = 16;
 /// 解密失败时统一提示（需求强约束）。
 const DECRYPT_FAIL_MSG: &str = "密钥错误或数据已损坏";
 
+/// `.encrypted` 文件中 Header(JSON) 的最大允许长度（字节）。
+///
+/// 为什么需要这个上限：
+/// - Header 长度字段是从文件里读出来的，如果文件被篡改/恶意构造，长度可能被改成非常大；
+/// - 如果我们不设上限就直接 `vec![0; header_len]`，程序会尝试分配巨量内存，轻则报错，重则崩溃/被系统杀掉；
+/// - Header 本质上只包含少量元数据（算法、nonce 前缀、原始文件名等），正常情况下远小于 1 MiB。
+///
+/// 取值策略：
+/// - 设为 1 MiB：给未来 header 增加字段留余量，同时能有效防止 OOM。
+const MAX_HEADER_JSON_LEN: u32 = 1024 * 1024;
+
 /// 文件加密 Header（JSON 自描述容器）：
 /// - `kind` 用于区分不同算法/模式。
 /// - 所有二进制字段统一使用 Base64。
@@ -211,11 +222,27 @@ pub fn build_encrypt_output_path(input_path: &Path, output_dir: &Path) -> Result
 /// 根据 `.encrypted` 文件 header 与输出目录，生成“解密输出路径”：
 /// - 规则：还原 header 中记录的原始文件名。
 pub fn build_decrypt_output_path(header: &FileCipherHeader, output_dir: &Path) -> Result<PathBuf, String> {
-    let name = header.original_file_name().trim();
-    if name.is_empty() {
-        return Err("加密文件缺少原始文件名".to_string());
-    }
-    Ok(output_dir.join(name))
+    // 说明：
+    // - 正常情况下 header.original_file_name 来自加密时的 `input_path.file_name()`，应当是“纯文件名”；
+    // - 但解密输入文件可能来自外部（下载/他人发送/被篡改），header 里的 original_file_name 可能被恶意改成：
+    //   - 含路径分隔符（例如 `..\\..\\xxx` / `../../xxx`）→ 典型路径穿越；
+    //   - 绝对路径（例如 `C:\\...` / `/etc/...`）→ 试图把输出写到非预期位置；
+    // - 因此这里做“最基础、最保守”的防护：只允许纯文件名，否则统一回退为固定安全名。
+    let safe_name = sanitize_decrypt_output_file_name(header);
+    Ok(output_dir.join(safe_name))
+}
+
+/// 将 header 中声明的“原始文件名”净化为可安全落盘的文件名。
+///
+/// 规则（按你的需求）：
+/// - 如果是“纯文件名”（不包含目录/驱动器/路径穿越语义），则原样使用；
+/// - 否则一律改成固定的 `"safe_filename"`。
+///
+/// 注意：
+/// - 这里不做“智能修复”（比如取最后一段 basename），因为那可能仍会被构造出迷惑性名字；
+/// - 固定名字更简单、更安全，也满足你提出的“检测到就改成 safe filename”。
+pub fn sanitize_decrypt_output_file_name(header: &FileCipherHeader) -> String {
+    sanitize_file_name_or_fallback(header.original_file_name())
 }
 
 /// 读取 `.encrypted` 文件 header（用于解密前的校验、以及输出路径推导）。
@@ -235,7 +262,9 @@ pub fn read_header_only(encrypted_path: &Path) -> Result<FileCipherHeader, Strin
     }
 
     let header_len = read_u32_le(&mut r).map_err(|e| format!("读取 header 长度失败：{e}"))?;
-    let mut buf = vec![0u8; header_len as usize];
+    // 关键防护：限制 header 长度，避免恶意文件导致巨量内存分配（OOM/崩溃）。
+    let header_len_usize = checked_header_len(header_len)?;
+    let mut buf = vec![0u8; header_len_usize];
     r.read_exact(&mut buf).map_err(|e| format!("读取 header 失败：{e}"))?;
 
     let header: FileCipherHeader = serde_json::from_slice(&buf).map_err(|e| format!("解析 header 失败：{e}"))?;
@@ -482,7 +511,10 @@ pub fn decrypt_file_stream(
         }
 
         let header_len = read_u32_le(&mut r).map_err(|e| format!("读取 header 长度失败：{e}"))?;
-        let mut buf = vec![0u8; header_len as usize];
+        // 关键防护：限制 header 长度，避免恶意文件导致巨量内存分配（OOM/崩溃）。
+        // 解密场景按需求做错误收敛：一旦发现 header 不可信/异常，统一提示“密钥错误或数据已损坏”。
+        let header_len_usize = checked_header_len(header_len).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
+        let mut buf = vec![0u8; header_len_usize];
         r.read_exact(&mut buf).map_err(|e| format!("读取 header 失败：{e}"))?;
         let header: FileCipherHeader = serde_json::from_slice(&buf).map_err(|e| format!("解析 header 失败：{e}"))?;
 
@@ -646,6 +678,70 @@ fn read_u32_le(r: &mut dyn Read) -> Result<u32, std::io::Error> {
     let mut buf = [0u8; 4];
     r.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
+}
+
+/// 校验并转换 `.encrypted` 文件中的 header 长度字段。
+///
+/// 目的：
+/// - 防止恶意/损坏文件将 header_len 改成超大值，导致 `Vec` 分配巨量内存；
+/// - 同时避免在不同平台（32/64 位）上 `u32 -> usize` 转换的潜在问题。
+fn checked_header_len(header_len: u32) -> Result<usize, String> {
+    // 0 长度的 header 没有意义：既无法解析，也说明文件高度异常。
+    if header_len == 0 {
+        return Err("加密文件 header 长度异常（为 0）".to_string());
+    }
+
+    // 上限保护：避免 OOM。
+    if header_len > MAX_HEADER_JSON_LEN {
+        return Err(format!(
+            "加密文件 header 过大（{header_len} 字节），可能已损坏或不安全"
+        ));
+    }
+
+    // 安全转换：即便未来在 32 位平台编译，也避免溢出/截断隐患。
+    usize::try_from(header_len).map_err(|_| "加密文件 header 长度无法转换为平台长度".to_string())
+}
+
+/// 判断一个字符串是否为“纯文件名”（不包含路径/盘符/路径穿越语义）。
+///
+/// 为什么要做这个判断：
+/// - header.original_file_name 来自外部输入文件（可能被篡改），不能信任；
+/// - 如果允许包含路径分隔符或 `..`，就可能发生路径穿越，把解密输出写到非预期位置。
+fn is_pure_file_name(name: &str) -> bool {
+    let s = name.trim();
+    if s.is_empty() {
+        return false;
+    }
+
+    // 明确拒绝常见危险字符/语义：
+    // - `/`、`\\`：目录分隔符（跨平台）
+    // - `:`：Windows 盘符/UNC 等语义的一部分（例如 `C:\`）
+    // - `\0`：字符串终止符（部分底层接口会把它当作截断点，风险极高）
+    if s.contains('/') || s.contains('\\') || s.contains(':') || s.contains('\0') || s == "." || s == ".." {
+        return false;
+    }
+
+    // 再用 Path 的组件规则做一次兜底：必须只有一个 Normal 组件。
+    let p = Path::new(s);
+    let mut components = p.components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(_)), None) => true,
+        _ => false,
+    }
+}
+
+/// 将不可信的文件名净化为安全文件名。
+///
+/// 规则：
+/// - 如果是纯文件名：返回原值（trim 后）；
+/// - 否则：返回固定的 `"safe_filename"`。
+fn sanitize_file_name_or_fallback(name: &str) -> String {
+    let s = name.trim();
+    if is_pure_file_name(s) {
+        return s.to_string();
+    }
+    // 按你的需求：检测到“非纯文件名/疑似攻击内容”时，统一改为固定安全文件名。
+    "safe filename".to_string()
 }
 
 /// 写入 u32（小端）。

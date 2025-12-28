@@ -1705,7 +1705,11 @@ pub fn file_decrypt_start(app: AppHandle, state: State<'_, AppState>, req: FileD
     Ok(FileCryptoStartResponse {
         task_id,
         output_path: output_path.to_string_lossy().to_string(),
-        original_file_name: Some(header.original_file_name().to_string()),
+        // 防护：header 来自外部输入文件，original_file_name 可能被篡改成带路径的字符串。
+        // 这里返回“净化后的文件名”，保证：
+        // - UI 展示的“将还原为 XXX”与实际输出路径一致；
+        // - 避免在 UI 中出现迷惑性/攻击性路径文本（例如 `..\\..\\...`）。
+        original_file_name: Some(file_crypto::sanitize_decrypt_output_file_name(&header)),
     })
 }
 
