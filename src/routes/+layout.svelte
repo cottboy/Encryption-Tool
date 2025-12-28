@@ -105,7 +105,16 @@
 <div class="app">
   <header class="topbar">
     <div class="topbar-inner container">
-      <div class="brand">{$t("app.title")}</div>
+      <!--
+        顶部栏布局（macOS 风格）：
+        - 左：应用名
+        - 中：主功能分段控件（密钥管理 / 文本加密 / 文件加密）
+        - 右：语言切换
+        这样可以让分段控件在视觉上“居中且对称”，避免挤在一侧造成廉价感。
+      -->
+      <div class="topbar-left">
+        <div class="brand">{$t("app.title")}</div>
+      </div>
 
       <nav class="tabs" aria-label="主功能标签">
         {#each tabs as tab}
@@ -119,9 +128,7 @@
         {/each}
       </nav>
 
-      <div class="spacer"></div>
-
-      <div class="locale">
+      <div class="topbar-right locale">
         <select aria-label="语言" onchange={onLocaleChange} bind:value={$locale}>
           {#each supportedLocales as loc}
             <option value={loc}>{loc}</option>
@@ -198,9 +205,14 @@
 
   .topbar-inner {
     height: 52px;
-    display: flex;
+    /*
+      macOS 顶部栏常见布局：左右各一组控件，中间主控件居中。
+      使用三列 grid 可以做到“真居中”，不会因为右侧控件宽度变化而偏移。
+    */
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 10px;
+    column-gap: 12px;
   }
 
   .brand {
@@ -210,38 +222,69 @@
     white-space: nowrap;
   }
 
-  /* 标签页：胶囊分段控件，扁平化 */
-  .tabs {
+  .topbar-left {
+    justify-self: start;
     display: flex;
-    gap: 6px;
-    padding: 6px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.7);
+    align-items: center;
+    min-width: 0;
+  }
+
+  .topbar-right {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  /*
+    标签页：macOS 风格分段控件（Segmented Control）
+    目标：
+    - 去掉“卡片嵌套感”（外层胶囊 + 内层胶囊的双重边框/阴影）
+    - 视觉上更接近原生：淡底、轻边框、选中项白底浮起
+    - 位置保持居中，对称一致
+  */
+  .tabs {
+    justify-self: center;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 10px;
+    background: rgba(118, 118, 128, 0.12);
+    border: 1px solid rgba(60, 60, 67, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   }
 
   .tab {
     text-decoration: none;
-    color: var(--muted);
+    color: rgba(60, 60, 67, 0.78);
     font-size: 13px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    border: 1px solid transparent;
+    padding: 6px 14px;
+    border-radius: 8px;
+    line-height: 16px;
+    user-select: none;
+    white-space: nowrap;
+    transition:
+      background 120ms ease,
+      box-shadow 120ms ease,
+      color 120ms ease;
   }
 
   .tab:hover {
-    color: var(--text);
-    border-color: var(--border);
+    color: rgba(60, 60, 67, 0.92);
+    background: rgba(118, 118, 128, 0.10);
   }
 
   .tab.active {
-    color: var(--text);
-    background: #ffffff;
-    border-color: var(--border);
+    color: rgba(60, 60, 67, 0.92);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 1px 1px rgba(0, 0, 0, 0.10),
+      inset 0 1px 0 rgba(255, 255, 255, 0.70);
   }
 
-  .spacer {
-    flex: 1;
+  .tab[aria-disabled="true"] {
+    pointer-events: none;
+    opacity: 0.55;
   }
 
   .locale select {
