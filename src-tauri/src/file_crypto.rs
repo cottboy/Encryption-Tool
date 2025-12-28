@@ -69,8 +69,8 @@ const DECRYPT_FAIL_MSG: &str = "密钥错误或数据已损坏";
 /// - Header 本质上只包含少量元数据（算法、nonce 前缀、原始文件名等），正常情况下远小于 1 MiB。
 ///
 /// 取值策略：
-/// - 设为 1 MiB：给未来 header 增加字段留余量，同时能有效防止 OOM。
-const MAX_HEADER_JSON_LEN: u32 = 1024 * 1024;
+/// - 设为 10 MiB：给未来 header 增加字段留余量，同时仍能有效防止“超大声明”导致的 OOM。
+const MAX_HEADER_JSON_LEN: u32 = 10 * 1024 * 1024;
 
 /// 文件加密 Header（JSON 自描述容器）：
 /// - `kind` 用于区分不同算法/模式。
