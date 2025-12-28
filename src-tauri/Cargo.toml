@@ -1,6 +1,6 @@
 [package]
 name = "encryption-tool"
-version = "0.1.0"
+version = "1.0.0"
 description = "Encryption Tool"
 authors = ["you"]
 edition = "2021"
@@ -71,5 +71,4 @@ aes-gcm = { version = "0.10", features = ["std"] }
 sha2 = "0.10"
 # - HKDF：X25519 共享密钥 → 会话密钥派生
 hkdf = "0.12"
-
 
