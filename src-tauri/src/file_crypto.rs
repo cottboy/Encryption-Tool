@@ -31,14 +31,9 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key as AesKey, Nonce as AesNonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
-use hkdf::Hkdf;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey};
-use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
-use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::Zeroizing;
 
 /// 文件容器版本：结构变更时用于兼容/迁移。
@@ -59,7 +54,7 @@ const PROGRESS_CALLBACK_INTERVAL: u64 = 10 * 1024 * 1024;
 const AEAD_TAG_SIZE: usize = 16;
 
 /// 解密失败时统一提示（需求强约束）。
-const DECRYPT_FAIL_MSG: &str = "密钥错误或数据已损坏";
+pub(crate) const DECRYPT_FAIL_MSG: &str = "密钥错误或数据已损坏";
 
 /// `.encrypted` 文件中 Header(JSON) 的最大允许长度（字节）。
 ///
@@ -149,9 +144,15 @@ impl FileCipherHeader {
     /// 获取原始文件名（用于解密还原输出文件名）。
     pub fn original_file_name(&self) -> &str {
         match self {
-            FileCipherHeader::SymmetricStream { original_file_name, .. } => original_file_name,
-            FileCipherHeader::HybridRsaStream { original_file_name, .. } => original_file_name,
-            FileCipherHeader::HybridX25519Stream { original_file_name, .. } => original_file_name,
+            FileCipherHeader::SymmetricStream {
+                original_file_name, ..
+            } => original_file_name,
+            FileCipherHeader::HybridRsaStream {
+                original_file_name, ..
+            } => original_file_name,
+            FileCipherHeader::HybridX25519Stream {
+                original_file_name, ..
+            } => original_file_name,
         }
     }
 
@@ -159,12 +160,20 @@ impl FileCipherHeader {
     /// 获取 nonce_prefix（8 字节）。
     pub fn nonce_prefix(&self) -> Result<[u8; 8], String> {
         let s = match self {
-            FileCipherHeader::SymmetricStream { nonce_prefix_b64, .. } => nonce_prefix_b64,
-            FileCipherHeader::HybridRsaStream { nonce_prefix_b64, .. } => nonce_prefix_b64,
-            FileCipherHeader::HybridX25519Stream { nonce_prefix_b64, .. } => nonce_prefix_b64,
+            FileCipherHeader::SymmetricStream {
+                nonce_prefix_b64, ..
+            } => nonce_prefix_b64,
+            FileCipherHeader::HybridRsaStream {
+                nonce_prefix_b64, ..
+            } => nonce_prefix_b64,
+            FileCipherHeader::HybridX25519Stream {
+                nonce_prefix_b64, ..
+            } => nonce_prefix_b64,
         };
 
-        let bytes = B64.decode(s.trim()).map_err(|e| format!("nonce_prefix 解码失败：{e}"))?;
+        let bytes = B64
+            .decode(s.trim())
+            .map_err(|e| format!("nonce_prefix 解码失败：{e}"))?;
         if bytes.len() != 8 {
             return Err("nonce_prefix 长度不正确".to_string());
         }
@@ -186,7 +195,10 @@ pub enum FileCryptoOutcome {
 #[derive(Debug, Clone)]
 pub enum EncryptKeyMaterial {
     /// 对称密钥：用于 AES-256 / ChaCha20
-    Symmetric { alg: String, key_32: Zeroizing<[u8; 32]> },
+    Symmetric {
+        alg: String,
+        key_32: Zeroizing<[u8; 32]>,
+    },
 
     /// RSA 公钥：用于包裹会话密钥（文件数据仍然对称流式）
     RsaPublic { alg: String, public_pem: String },
@@ -199,7 +211,10 @@ pub enum EncryptKeyMaterial {
 #[derive(Debug, Clone)]
 pub enum DecryptKeyMaterial {
     /// 对称密钥：用于 AES-256 / ChaCha20
-    Symmetric { alg: String, key_32: Zeroizing<[u8; 32]> },
+    Symmetric {
+        alg: String,
+        key_32: Zeroizing<[u8; 32]>,
+    },
 
     /// RSA 私钥：用于解包会话密钥（文件数据仍然对称流式）
     RsaPrivate { private_pem: String },
@@ -221,7 +236,10 @@ pub fn build_encrypt_output_path(input_path: &Path, output_dir: &Path) -> Result
 
 /// 根据 `.encrypted` 文件 header 与输出目录，生成“解密输出路径”：
 /// - 规则：还原 header 中记录的原始文件名。
-pub fn build_decrypt_output_path(header: &FileCipherHeader, output_dir: &Path) -> Result<PathBuf, String> {
+pub fn build_decrypt_output_path(
+    header: &FileCipherHeader,
+    output_dir: &Path,
+) -> Result<PathBuf, String> {
     // 说明：
     // - 正常情况下 header.original_file_name 来自加密时的 `input_path.file_name()`，应当是“纯文件名”；
     // - 但解密输入文件可能来自外部（下载/他人发送/被篡改），header 里的 original_file_name 可能被恶意改成：
@@ -251,7 +269,8 @@ pub fn read_header_only(encrypted_path: &Path) -> Result<FileCipherHeader, Strin
     let mut r = BufReader::new(f);
 
     let mut magic = [0u8; 4];
-    r.read_exact(&mut magic).map_err(|e| format!("读取文件头失败：{e}"))?;
+    r.read_exact(&mut magic)
+        .map_err(|e| format!("读取文件头失败：{e}"))?;
     if &magic != FILE_MAGIC {
         return Err("不是有效的 .encrypted 文件（魔数不匹配）".to_string());
     }
@@ -265,9 +284,11 @@ pub fn read_header_only(encrypted_path: &Path) -> Result<FileCipherHeader, Strin
     // 关键防护：限制 header 长度，避免恶意文件导致巨量内存分配（OOM/崩溃）。
     let header_len_usize = checked_header_len(header_len)?;
     let mut buf = vec![0u8; header_len_usize];
-    r.read_exact(&mut buf).map_err(|e| format!("读取 header 失败：{e}"))?;
+    r.read_exact(&mut buf)
+        .map_err(|e| format!("读取 header 失败：{e}"))?;
 
-    let header: FileCipherHeader = serde_json::from_slice(&buf).map_err(|e| format!("解析 header 失败：{e}"))?;
+    let header: FileCipherHeader =
+        serde_json::from_slice(&buf).map_err(|e| format!("解析 header 失败：{e}"))?;
     Ok(header)
 }
 
@@ -321,91 +342,39 @@ pub fn encrypt_file_stream(
         OsRng.fill_bytes(&mut nonce_prefix);
         let nonce_prefix_b64 = B64.encode(nonce_prefix);
 
-        // ========== 根据 key 决定 header 与“数据侧 key” ==========
-        let (header, data_key_32): (FileCipherHeader, Zeroizing<[u8; 32]>) = match key {
-            EncryptKeyMaterial::Symmetric { alg, key_32 } => {
-                let header = FileCipherHeader::SymmetricStream {
-                    v: FILE_CIPHER_VERSION,
-                    alg,
-                    chunk_size: DEFAULT_CHUNK_SIZE,
-                    file_size: total,
-                    original_file_name,
-                    original_extension,
-                    nonce_prefix_b64,
-                };
-                (header, key_32)
-            }
-            EncryptKeyMaterial::RsaPublic { alg, public_pem } => {
-                // 混合加密：会话密钥随机生成，数据侧固定使用 AES-256（与文本页一致）。
-                let mut session_key = Zeroizing::new([0u8; 32]);
-                OsRng.fill_bytes(session_key.as_mut());
-
-                let pub_key = RsaPublicKey::from_public_key_pem(public_pem.trim())
-                    .map_err(|e| format!("RSA 公钥解析失败：{e}"))?;
-
-                let wrapped = pub_key
-                    .encrypt(&mut OsRng, Oaep::new::<Sha256>(), session_key.as_ref())
-                    .map_err(|e| format!("RSA 包裹会话密钥失败：{e}"))?;
-
-                let header = FileCipherHeader::HybridRsaStream {
-                    v: FILE_CIPHER_VERSION,
-                    alg,
-                    data_alg: "AES-256".to_string(),
-                    chunk_size: DEFAULT_CHUNK_SIZE,
-                    file_size: total,
-                    original_file_name,
-                    original_extension,
-                    nonce_prefix_b64,
-                    wrapped_key_b64: B64.encode(wrapped),
-                };
-
-                (header, session_key)
-            }
-            EncryptKeyMaterial::X25519Public { public_32 } => {
-                // 混合加密：X25519 共享密钥 → HKDF 派生会话密钥，数据侧固定使用 AES-256（与文本页一致）。
-                let recipient_pub = X25519PublicKey::from(public_32);
-
-                // 生成临时密钥对（发送方）。
-                let eph_secret = X25519StaticSecret::random_from_rng(OsRng);
-                let eph_public = X25519PublicKey::from(&eph_secret);
-                let shared = eph_secret.diffie_hellman(&recipient_pub);
-
-                // HKDF 盐：使用“第 0 块 nonce（12字节）”，与文本页的做法对齐（nonce 作为 salt）。
-                let nonce0 = make_nonce_12(&nonce_prefix, 0);
-                let hk = Hkdf::<Sha256>::new(Some(&nonce0), shared.as_bytes());
-                let mut derived = Zeroizing::new([0u8; 32]);
-                hk.expand(b"encryption-tool:file:v1", derived.as_mut())
-                    .map_err(|_| "HKDF 派生失败".to_string())?;
-
-                let header = FileCipherHeader::HybridX25519Stream {
-                    v: FILE_CIPHER_VERSION,
-                    alg: "X25519".to_string(),
-                    data_alg: "AES-256".to_string(),
-                    chunk_size: DEFAULT_CHUNK_SIZE,
-                    file_size: total,
-                    original_file_name,
-                    original_extension,
-                    nonce_prefix_b64,
-                    eph_public_b64: B64.encode(eph_public.as_bytes()),
-                };
-
-                (header, derived)
-            }
+        // ========== 根据算法准备 header 与“数据侧 key” ==========
+        // 说明：不同算法的 header 结构与会话密钥生成/包裹方式不同，
+        // 这里统一交给 crypto_algorithms（每种算法一个文件）做分发。
+        let meta = crate::crypto_algorithms::FileEncryptMeta {
+            version: FILE_CIPHER_VERSION,
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            file_size: total,
+            original_file_name,
+            original_extension,
+            nonce_prefix_b64,
+            nonce_prefix_8: nonce_prefix,
         };
+        let (header, data_key_32): (FileCipherHeader, Zeroizing<[u8; 32]>) =
+            crate::crypto_algorithms::file_encrypt_prepare(key, meta)?;
 
         // ========== 写文件头 ==========
-        out.write_all(FILE_MAGIC).map_err(|e| format!("写入魔数失败：{e}"))?;
+        out.write_all(FILE_MAGIC)
+            .map_err(|e| format!("写入魔数失败：{e}"))?;
         write_u32_le(&mut out, FILE_CIPHER_VERSION).map_err(|e| format!("写入版本号失败：{e}"))?;
 
-        let header_json = serde_json::to_vec(&header).map_err(|e| format!("序列化 header 失败：{e}"))?;
-        write_u32_le(&mut out, header_json.len() as u32).map_err(|e| format!("写入 header 长度失败：{e}"))?;
-        out.write_all(&header_json).map_err(|e| format!("写入 header 失败：{e}"))?;
+        let header_json =
+            serde_json::to_vec(&header).map_err(|e| format!("序列化 header 失败：{e}"))?;
+        write_u32_le(&mut out, header_json.len() as u32)
+            .map_err(|e| format!("写入 header 长度失败：{e}"))?;
+        out.write_all(&header_json)
+            .map_err(|e| format!("写入 header 失败：{e}"))?;
 
         // ========== 流式分块加密 ==========
         // 注意：这里把 nonce_prefix 提前解码/固定下来，避免每块重复 Base64 解码造成额外开销。
         let nonce_prefix_bytes = nonce_prefix;
 
-        let mut input = BufReader::new(File::open(input_path).map_err(|e| format!("打开输入文件失败：{e}"))?);
+        let mut input =
+            BufReader::new(File::open(input_path).map_err(|e| format!("打开输入文件失败：{e}"))?);
         let mut processed: u64 = 0;
         let chunk_size = DEFAULT_CHUNK_SIZE as usize;
 
@@ -423,7 +392,9 @@ pub fn encrypt_file_stream(
                 return Ok(FileCryptoOutcome::Canceled);
             }
 
-            let n = input.read(&mut buf).map_err(|e| format!("读取输入文件失败：{e}"))?;
+            let n = input
+                .read(&mut buf)
+                .map_err(|e| format!("读取输入文件失败：{e}"))?;
             if n == 0 {
                 break;
             }
@@ -433,7 +404,8 @@ pub fn encrypt_file_stream(
 
             // 分块 AEAD：每块都有自己的 tag，从而具备“逐块防篡改”能力。
             let ct = aead_encrypt(header.data_alg(), &data_key_32, &nonce, &buf[..n])?;
-            out.write_all(&ct).map_err(|e| format!("写入输出文件失败：{e}"))?;
+            out.write_all(&ct)
+                .map_err(|e| format!("写入输出文件失败：{e}"))?;
 
             processed = processed.saturating_add(n as u64);
 
@@ -500,7 +472,8 @@ pub fn decrypt_file_stream(
 
         // ========== 读取头 ==========
         let mut magic = [0u8; 4];
-        r.read_exact(&mut magic).map_err(|e| format!("读取文件头失败：{e}"))?;
+        r.read_exact(&mut magic)
+            .map_err(|e| format!("读取文件头失败：{e}"))?;
         if &magic != FILE_MAGIC {
             return Err("不是有效的 .encrypted 文件（魔数不匹配）".to_string());
         }
@@ -513,10 +486,13 @@ pub fn decrypt_file_stream(
         let header_len = read_u32_le(&mut r).map_err(|e| format!("读取 header 长度失败：{e}"))?;
         // 关键防护：限制 header 长度，避免恶意文件导致巨量内存分配（OOM/崩溃）。
         // 解密场景按需求做错误收敛：一旦发现 header 不可信/异常，统一提示“密钥错误或数据已损坏”。
-        let header_len_usize = checked_header_len(header_len).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
+        let header_len_usize =
+            checked_header_len(header_len).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
         let mut buf = vec![0u8; header_len_usize];
-        r.read_exact(&mut buf).map_err(|e| format!("读取 header 失败：{e}"))?;
-        let header: FileCipherHeader = serde_json::from_slice(&buf).map_err(|e| format!("解析 header 失败：{e}"))?;
+        r.read_exact(&mut buf)
+            .map_err(|e| format!("读取 header 失败：{e}"))?;
+        let header: FileCipherHeader =
+            serde_json::from_slice(&buf).map_err(|e| format!("解析 header 失败：{e}"))?;
 
         // ========== 算法匹配校验 ==========
         let file_alg = match &header {
@@ -530,67 +506,35 @@ pub fn decrypt_file_stream(
         }
 
         // ========== 准备数据侧 key ==========
-        let data_key_32: Zeroizing<[u8; 32]> = match (header.clone(), key) {
-            (FileCipherHeader::SymmetricStream { alg, .. }, DecryptKeyMaterial::Symmetric { alg: k_alg, key_32 }) => {
-                if alg != k_alg {
-                    return Err("所选密钥与算法不匹配".to_string());
+        // 先解出 nonce_prefix：
+        // - 用于后续分块 nonce 构造
+        // - 同时也用于 X25519 的 HKDF salt（nonce0）
+        let nonce_prefix = header
+            .nonce_prefix()
+            .map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
+        let nonce0 = make_nonce_12(&nonce_prefix, 0);
+
+        // 对称场景：额外校验“所选密钥的算法”与 header.alg 一致（更符合 UI 预期）。
+        if let FileCipherHeader::SymmetricStream { alg, .. } = &header {
+            match &key {
+                DecryptKeyMaterial::Symmetric { alg: k_alg, .. } => {
+                    if alg != k_alg {
+                        return Err("所选密钥与算法不匹配".to_string());
+                    }
                 }
-                key_32
+                _ => return Err("所选密钥与加密文件类型不匹配".to_string()),
             }
-            (FileCipherHeader::HybridRsaStream { wrapped_key_b64, .. }, DecryptKeyMaterial::RsaPrivate { private_pem }) => {
-                let priv_key = RsaPrivateKey::from_pkcs8_pem(private_pem.trim())
-                    .map_err(|e| format!("RSA 私钥解析失败：{e}"))?;
+        }
 
-                let wrapped = B64.decode(wrapped_key_b64).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-                let session = priv_key
-                    .decrypt(Oaep::new::<Sha256>(), &wrapped)
-                    .map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-
-                if session.len() != 32 {
-                    return Err(DECRYPT_FAIL_MSG.to_string());
-                }
-                let mut out_key = Zeroizing::new([0u8; 32]);
-                out_key.copy_from_slice(&session);
-                out_key
-            }
-            (FileCipherHeader::HybridX25519Stream { eph_public_b64, nonce_prefix_b64, .. }, DecryptKeyMaterial::X25519Secret { secret_32 }) => {
-                let eph_pub_bytes = B64.decode(eph_public_b64).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-                if eph_pub_bytes.len() != 32 {
-                    return Err(DECRYPT_FAIL_MSG.to_string());
-                }
-                let mut eph_pub_arr = [0u8; 32];
-                eph_pub_arr.copy_from_slice(&eph_pub_bytes);
-                let eph_pub = X25519PublicKey::from(eph_pub_arr);
-
-                // nonce_prefix 是 8 字节，构造 nonce0（12 字节）作为 HKDF salt。
-                let np = B64.decode(nonce_prefix_b64).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-                if np.len() != 8 {
-                    return Err(DECRYPT_FAIL_MSG.to_string());
-                }
-                let mut np8 = [0u8; 8];
-                np8.copy_from_slice(&np);
-
-                let nonce0 = make_nonce_12(&np8, 0);
-
-                // Zeroizing<[u8;32]> 的 `as_ref()` 在某些实现中会退化为 `[u8]` 切片，
-                // 这里显式拷贝到定长数组，确保满足 `StaticSecret: From<[u8; 32]>` 的约束。
-                let mut sec_arr = [0u8; 32];
-                sec_arr.copy_from_slice(secret_32.as_ref());
-                let secret = X25519StaticSecret::from(sec_arr);
-                let shared = secret.diffie_hellman(&eph_pub);
-                let hk = Hkdf::<Sha256>::new(Some(&nonce0), shared.as_bytes());
-                let mut derived = Zeroizing::new([0u8; 32]);
-                hk.expand(b"encryption-tool:file:v1", derived.as_mut())
-                    .map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-                derived
-            }
-            _ => return Err("所选密钥与加密文件类型不匹配".to_string()),
-        };
+        // 具体“解包/派生会话密钥”的算法差异交给 crypto_algorithms 处理。
+        let data_key_32: Zeroizing<[u8; 32]> =
+            crate::crypto_algorithms::file_decrypt_unwrap_data_key(&header, key, &nonce0)
+                .map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
 
         // ========== 流式分块解密 ==========
         let total = header.file_size();
         let chunk_size = header.chunk_size() as u64;
-        let nonce_prefix = header.nonce_prefix().map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
+        // nonce_prefix 已在上面提前解出，这里直接复用。
 
         // 安全检查：防止恶意文件声明超大 chunk_size 导致内存分配失败。
         // 说明：正常情况下 chunk_size 应该等于 DEFAULT_CHUNK_SIZE (1 MiB)，
@@ -625,16 +569,19 @@ pub fn decrypt_file_stream(
             }
 
             let mut ct = vec![0u8; ct_len];
-            r.read_exact(&mut ct).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
+            r.read_exact(&mut ct)
+                .map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
 
             let nonce = make_nonce_12(&nonce_prefix, counter);
             counter = counter.wrapping_add(1);
 
-            let pt = aead_decrypt(header.data_alg(), &data_key_32, &nonce, &ct).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
+            let pt = aead_decrypt(header.data_alg(), &data_key_32, &nonce, &ct)
+                .map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
             if pt.len() != plain_len {
                 return Err(DECRYPT_FAIL_MSG.to_string());
             }
-            out.write_all(&pt).map_err(|e| format!("写入输出文件失败：{e}"))?;
+            out.write_all(&pt)
+                .map_err(|e| format!("写入输出文件失败：{e}"))?;
 
             processed = processed.saturating_add(plain_len as u64);
 
@@ -717,7 +664,13 @@ fn is_pure_file_name(name: &str) -> bool {
     // - `/`、`\\`：目录分隔符（跨平台）
     // - `:`：Windows 盘符/UNC 等语义的一部分（例如 `C:\`）
     // - `\0`：字符串终止符（部分底层接口会把它当作截断点，风险极高）
-    if s.contains('/') || s.contains('\\') || s.contains(':') || s.contains('\0') || s == "." || s == ".." {
+    if s.contains('/')
+        || s.contains('\\')
+        || s.contains(':')
+        || s.contains('\0')
+        || s == "."
+        || s == ".."
+    {
         return false;
     }
 
@@ -758,7 +711,12 @@ fn make_nonce_12(prefix8: &[u8; 8], counter: u32) -> [u8; 12] {
 }
 
 /// AEAD 分块加密：输入 key(32) + nonce(12) + 明文，输出密文（含 tag）。
-fn aead_encrypt(alg: &str, key_32: &[u8; 32], nonce_12: &[u8; 12], plaintext: &[u8]) -> Result<Vec<u8>, String> {
+fn aead_encrypt(
+    alg: &str,
+    key_32: &[u8; 32],
+    nonce_12: &[u8; 12],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, String> {
     match alg {
         "AES-256" => {
             let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(key_32));
@@ -777,7 +735,12 @@ fn aead_encrypt(alg: &str, key_32: &[u8; 32], nonce_12: &[u8; 12], plaintext: &[
 }
 
 /// AEAD 分块解密：输入 key(32) + nonce(12) + 密文（含 tag），输出明文。
-fn aead_decrypt(alg: &str, key_32: &[u8; 32], nonce_12: &[u8; 12], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
+fn aead_decrypt(
+    alg: &str,
+    key_32: &[u8; 32],
+    nonce_12: &[u8; 12],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, String> {
     match alg {
         "AES-256" => {
             let cipher = Aes256Gcm::new(AesKey::<Aes256Gcm>::from_slice(key_32));

@@ -5,6 +5,7 @@
 */
 
 mod commands;
+mod crypto_algorithms;
 mod file_crypto;
 mod keystore;
 mod state;
@@ -53,5 +54,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用时发生错误");
 }
-
-

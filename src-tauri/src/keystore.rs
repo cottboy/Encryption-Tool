@@ -24,9 +24,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use argon2::{Algorithm, Argon2, Params, Version};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key as AesKey, Nonce as AesNonce};
+use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -72,7 +72,10 @@ pub enum KeyMaterial {
     /// - 为了支持“仅导入私钥”的场景，这里把 `public_pem` 设计为可选字段。
     /// - 如果 `public_pem` 缺失，则在 UI/业务规则上视为“仅私钥”，只允许解密，不允许加密。
     /// - 如果 `public_pem` 存在，则视为“完整”，允许加密+解密。
-    RsaPrivate { private_pem: String, public_pem: Option<String> },
+    RsaPrivate {
+        private_pem: String,
+        public_pem: Option<String>,
+    },
 
     /// RSA 仅公钥（SPKI PEM）。
     RsaPublic { public_pem: String },
@@ -83,7 +86,10 @@ pub enum KeyMaterial {
     /// - 需求变更：允许用户“只导入公钥”或“只导入私钥”。
     /// - 由于产品规则要求：X25519 必须同时拥有公钥+私钥才允许加/解密，因此这两个字段都设计为可选。
     /// - `secret_b64` / `public_b64` 的字节长度均要求为 32（Base64 解码后）。
-    X25519 { secret_b64: Option<String>, public_b64: Option<String> },
+    X25519 {
+        secret_b64: Option<String>,
+        public_b64: Option<String>,
+    },
 }
 
 /// 单个密钥条目。
@@ -278,7 +284,8 @@ pub fn decrypt_with_password_and_derived_key(
             ciphertext_b64,
             ..
         } => {
-            let (plain, derived_key) = decrypt_keystore_return_key(&kdf, &aead, &ciphertext_b64, password)?;
+            let (plain, derived_key) =
+                decrypt_keystore_return_key(&kdf, &aead, &ciphertext_b64, password)?;
             Ok((plain, Some((kdf, derived_key))))
         }
     }
@@ -296,7 +303,10 @@ pub fn encrypt_with_derived_key(
 ) -> Result<KeyStoreFile, KeyStoreError> {
     // 只支持我们当前实现的算法。
     if kdf.algorithm != "argon2id" {
-        return Err(KeyStoreError::Crypto(format!("不支持的 KDF：{}", kdf.algorithm)));
+        return Err(KeyStoreError::Crypto(format!(
+            "不支持的 KDF：{}",
+            kdf.algorithm
+        )));
     }
 
     let plaintext = serde_json::to_vec(plain)?;
@@ -332,14 +342,22 @@ pub fn write_plain(app: &AppHandle, plain: &KeyStorePlain) -> Result<(), KeyStor
 }
 
 /// 将密钥库写回磁盘（加密）。
-pub fn write_encrypted(app: &AppHandle, plain: &KeyStorePlain, kdf: &KdfParams, derived_key: &[u8; 32]) -> Result<(), KeyStoreError> {
+pub fn write_encrypted(
+    app: &AppHandle,
+    plain: &KeyStorePlain,
+    kdf: &KdfParams,
+    derived_key: &[u8; 32],
+) -> Result<(), KeyStoreError> {
     let path = keystore_path(app)?;
     let file = encrypt_with_derived_key(plain, kdf, derived_key)?;
     write_json_atomic(&path, &file)
 }
 
 /// 用“新密码”启用/修改应用锁：生成新 salt，并返回 (kdf, derived_key)。
-pub fn encrypt_with_new_password(plain: &KeyStorePlain, password: &str) -> Result<(KeyStoreFile, KdfParams, [u8; 32]), KeyStoreError> {
+pub fn encrypt_with_new_password(
+    plain: &KeyStorePlain,
+    password: &str,
+) -> Result<(KeyStoreFile, KdfParams, [u8; 32]), KeyStoreError> {
     let plaintext = serde_json::to_vec(plain)?;
 
     let mut salt = [0u8; 16];
@@ -411,11 +429,17 @@ fn decrypt_keystore_return_key(
     password: &str,
 ) -> Result<(KeyStorePlain, [u8; 32]), KeyStoreError> {
     if kdf.algorithm != "argon2id" {
-        return Err(KeyStoreError::Crypto(format!("不支持的 KDF：{}", kdf.algorithm)));
+        return Err(KeyStoreError::Crypto(format!(
+            "不支持的 KDF：{}",
+            kdf.algorithm
+        )));
     }
     // 密钥库仅支持 AES-256-GCM（开发阶段不做向后兼容）。
     if aead.algorithm != "aes256gcm" {
-        return Err(KeyStoreError::Crypto(format!("不支持的 AEAD：{}", aead.algorithm)));
+        return Err(KeyStoreError::Crypto(format!(
+            "不支持的 AEAD：{}",
+            aead.algorithm
+        )));
     }
 
     let salt = B64
@@ -449,7 +473,8 @@ fn decrypt_keystore_return_key(
         .decrypt(AesNonce::from_slice(&nonce), ciphertext.as_ref())
         .map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
 
-    let plain: KeyStorePlain = serde_json::from_slice(&plaintext).map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
+    let plain: KeyStorePlain =
+        serde_json::from_slice(&plaintext).map_err(|_| KeyStoreError::PasswordOrDataInvalid)?;
 
     if plain.version != KEYSTORE_VERSION {
         return Err(KeyStoreError::Crypto(format!(
@@ -462,7 +487,11 @@ fn decrypt_keystore_return_key(
     Ok((plain, key_bytes))
 }
 
-fn derive_key_argon2id(password: &str, salt: &[u8], out_key_32: &mut [u8; 32]) -> Result<(), KeyStoreError> {
+fn derive_key_argon2id(
+    password: &str,
+    salt: &[u8],
+    out_key_32: &mut [u8; 32],
+) -> Result<(), KeyStoreError> {
     derive_key_argon2id_with_params(
         password,
         salt,

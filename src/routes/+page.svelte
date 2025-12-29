@@ -60,8 +60,14 @@
     x25519_secret_b64: string;
   };
 
-  const supportedTypes = ["AES-256", "ChaCha20", "RSA2048", "RSA4096", "X25519"] as const;
-  type SupportedType = (typeof supportedTypes)[number];
+  // 支持的算法列表：
+  // - 单一来源：后端 `get_supported_algorithms`（由 Rust 注册表生成）
+  // - 这样未来新增算法时，这里不需要再手动改数组，减少漏改风险。
+  type SupportedAlgorithms = {
+    symmetric: string[];
+    asymmetric: string[];
+  };
+  let supportedTypes = $state<string[]>([]);
 
   let status = $state<KeyStoreStatus | null>(null);
   let entries = $state<KeyEntryPublic[]>([]);
@@ -94,11 +100,11 @@
   }
 
   // Generate
-  let genType = $state<SupportedType>("AES-256");
+  let genType = $state<string>("AES-256");
   let genLabel = $state("");
 
   // Import
-  let importType = $state<SupportedType>("AES-256");
+  let importType = $state<string>("AES-256");
   let importLabel = $state("");
   let importSymmetricKeyB64 = $state("");
   let importRsaPublicPem = $state("");
@@ -148,6 +154,15 @@
   async function refresh() {
     message = "";
     status = await invoke<KeyStoreStatus>("keystore_status");
+
+    // 拉取算法列表（用于“生成/导入”弹窗的下拉框）
+    // 注意：即使这里失败，也不影响密钥库读写，只是 UI 下拉框缺少选项。
+    try {
+      const algos = await invoke<SupportedAlgorithms>("get_supported_algorithms");
+      supportedTypes = [...algos.symmetric, ...algos.asymmetric];
+    } catch {
+      supportedTypes = [];
+    }
 
     try {
       entries = await invoke<KeyEntryPublic[]>("keystore_list_entries");
@@ -301,7 +316,7 @@
     }
   }
 
-  function buildUpsertPayload(tp: SupportedType, fields: {
+  function buildUpsertPayload(tp: string, fields: {
     label: string;
     symmetric_key_b64: string;
     rsa_public_pem: string;
@@ -359,7 +374,7 @@
     await invoke("keystore_update_key", {
       req: {
         id: detail.id,
-        ...buildUpsertPayload(detail.key_type as SupportedType, {
+        ...buildUpsertPayload(detail.key_type, {
           label: name,
           symmetric_key_b64: detail.symmetric_key_b64,
           rsa_public_pem: detail.rsa_public_pem,
