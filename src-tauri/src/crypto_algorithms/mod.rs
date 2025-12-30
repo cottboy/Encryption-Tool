@@ -19,7 +19,6 @@ mod aes256;
 mod chacha20;
 mod rsa2048;
 mod rsa4096;
-mod rsa_common;
 mod utils;
 mod x25519;
 
