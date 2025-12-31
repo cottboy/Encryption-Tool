@@ -57,6 +57,66 @@ pub struct SupportedAlgorithms {
     pub asymmetric: Vec<&'static str>,
 }
 
+// =====================
+// 算法声明（用于 UI 动态表单）
+// =====================
+
+/// 给前端的“算法字段声明”：前端可据此动态渲染“导入/编辑密钥”的输入框。
+///
+/// 说明：
+/// - 这里输出的是“i18n key”，前端用 `$t(key)` 渲染成中文/英文等文案；
+/// - 这样可以避免后端硬编码具体语言，同时保持“声明驱动 UI”。
+#[derive(Debug, Clone, Serialize)]
+pub struct AlgorithmKeyFieldSpec {
+    /// 对应请求字段名（固定集合，例如 symmetric_key_b64 / rsa_public_pem 等）。
+    pub field: &'static str,
+    /// label 的翻译 key。
+    pub label_key: &'static str,
+    /// placeholder 的翻译 key（可选）。
+    pub placeholder_key: Option<&'static str>,
+    /// textarea 行数。
+    pub rows: u8,
+    /// 字段提示的翻译 key（可选）。
+    pub hint_key: Option<&'static str>,
+}
+
+/// 给前端的“算法表单声明”。
+#[derive(Debug, Clone, Serialize)]
+pub struct AlgorithmFormSpec {
+    pub id: &'static str,
+    pub category: &'static str,
+    pub encrypt_needs: &'static str,
+    pub decrypt_needs: &'static str,
+    pub key_fields: Vec<AlgorithmKeyFieldSpec>,
+}
+
+#[tauri::command]
+pub fn get_algorithm_form_specs() -> Vec<AlgorithmFormSpec> {
+    crate::crypto_algorithms::all_specs()
+        .iter()
+        .map(|spec| AlgorithmFormSpec {
+            id: spec.id,
+            category: match spec.category {
+                crate::crypto_algorithms::AlgorithmCategory::Symmetric => "symmetric",
+                crate::crypto_algorithms::AlgorithmCategory::Asymmetric => "asymmetric",
+            },
+            encrypt_needs: spec.encrypt_needs,
+            decrypt_needs: spec.decrypt_needs,
+            key_fields: spec
+                .key_fields
+                .iter()
+                .map(|f| AlgorithmKeyFieldSpec {
+                    field: f.field,
+                    label_key: f.label_key,
+                    placeholder_key: f.placeholder_key,
+                    rows: f.rows,
+                    hint_key: f.hint_key,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub fn get_supported_algorithms() -> SupportedAlgorithms {
     // 单一来源：算法列表来自 crypto_algorithms 注册表，避免前后端/多模块分别维护。

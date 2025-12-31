@@ -69,6 +69,26 @@
   };
   let supportedTypes = $state<string[]>([]);
 
+  // 后端算法声明（用于“按声明动态渲染输入表单”）
+  type AlgorithmKeyFieldSpec = {
+    field: string;
+    label_key: string;
+    placeholder_key: string | null;
+    rows: number;
+    hint_key: string | null;
+  };
+
+  type AlgorithmFormSpec = {
+    id: string;
+    category: "symmetric" | "asymmetric";
+    encrypt_needs: string;
+    decrypt_needs: string;
+    key_fields: AlgorithmKeyFieldSpec[];
+  };
+
+  // 按算法 id 建索引，方便快速查找当前算法需要哪些字段。
+  let algorithmSpecsById = $state<Record<string, AlgorithmFormSpec>>({});
+
   let status = $state<KeyStoreStatus | null>(null);
   let entries = $state<KeyEntryPublic[]>([]);
 
@@ -162,6 +182,17 @@
       supportedTypes = [...algos.symmetric, ...algos.asymmetric];
     } catch {
       supportedTypes = [];
+    }
+
+    // 拉取算法表单声明：用于动态生成“导入/编辑”输入项。
+    // 注意：即使这里失败，也不会影响密钥库读写；只是 UI 会退回到“无字段”状态。
+    try {
+      const specs = await invoke<AlgorithmFormSpec[]>("get_algorithm_form_specs");
+      const map: Record<string, AlgorithmFormSpec> = {};
+      for (const s of specs) map[s.id] = s;
+      algorithmSpecsById = map;
+    } catch {
+      algorithmSpecsById = {};
     }
 
     try {
@@ -324,41 +355,42 @@
     x25519_public_b64: string;
     x25519_secret_b64: string;
   }) {
-    // 只发送当前类型相关的字段，避免把“旧类型残留字段”误传给后端。
-    if (tp === "AES-256" || tp === "ChaCha20") {
-      return {
-        key_type: tp,
-        label: fields.label,
-        symmetric_key_b64: fields.symmetric_key_b64,
-        rsa_public_pem: null,
-        rsa_private_pem: null,
-        x25519_public_b64: null,
-        x25519_secret_b64: null
-      };
-    }
+    // 只发送当前算法声明的字段，避免把“旧算法残留字段”误传给后端。
+    // 注意：当前后端 UpsertKeyRequest 仍是固定字段结构，因此这里做“声明驱动的清空/保留”。
+    const spec = algorithmSpecsById[tp];
 
-    if (tp === "X25519") {
-      return {
-        key_type: tp,
-        label: fields.label,
-        symmetric_key_b64: null,
-        rsa_public_pem: null,
-        rsa_private_pem: null,
-        x25519_public_b64: fields.x25519_public_b64,
-        x25519_secret_b64: fields.x25519_secret_b64
-      };
-    }
-
-    // RSA2048 / RSA4096
-    return {
+    const out: Record<string, string | null> = {
       key_type: tp,
       label: fields.label,
       symmetric_key_b64: null,
-      rsa_public_pem: fields.rsa_public_pem,
-      rsa_private_pem: fields.rsa_private_pem,
+      rsa_public_pem: null,
+      rsa_private_pem: null,
       x25519_public_b64: null,
       x25519_secret_b64: null
     };
+
+    // 如果 spec 缺失，保守策略：按旧逻辑兜底（避免 UI 因异常无法保存）。
+    if (!spec) {
+      if (tp === "AES-256" || tp === "ChaCha20") out.symmetric_key_b64 = fields.symmetric_key_b64;
+      else if (tp === "X25519") {
+        out.x25519_public_b64 = fields.x25519_public_b64;
+        out.x25519_secret_b64 = fields.x25519_secret_b64;
+      } else {
+        out.rsa_public_pem = fields.rsa_public_pem;
+        out.rsa_private_pem = fields.rsa_private_pem;
+      }
+      return out;
+    }
+
+    // 按声明把字段填入请求。
+    for (const f of spec.key_fields) {
+      if (f.field === "symmetric_key_b64") out.symmetric_key_b64 = fields.symmetric_key_b64;
+      if (f.field === "rsa_public_pem") out.rsa_public_pem = fields.rsa_public_pem;
+      if (f.field === "rsa_private_pem") out.rsa_private_pem = fields.rsa_private_pem;
+      if (f.field === "x25519_public_b64") out.x25519_public_b64 = fields.x25519_public_b64;
+      if (f.field === "x25519_secret_b64") out.x25519_secret_b64 = fields.x25519_secret_b64;
+    }
+    return out;
   }
 
   async function saveDetail() {
@@ -545,28 +577,35 @@
       </div>
 
       <!--
-        手动导入：按算法类型显示不同输入项
-        - 对称：只需要密钥（Base64）
-        - RSA：公钥/私钥（PEM）可任选其一或同时填写
-        - X25519：公钥/私钥（Base64）可任选其一或同时填写
+        手动导入：按“后端算法声明（AlgorithmFormSpec）”动态生成输入项。
+
+        说明：
+        - 这里不再按算法写死 if/else（避免新增算法时必须改前端模板）
+        - 仍然受限于当前后端 UpsertKeyRequest 的固定字段集合，因此支持的 field 也是固定集合
       -->
-      {#if importType === "AES-256" || importType === "ChaCha20"}
-        <div class="label" style="margin-top: 12px">{$t("keys.ui.preview.symmetricKey")}</div>
-        <textarea rows="5" bind:value={importSymmetricKeyB64} placeholder={$t("keys.ui.placeholders.symmetricB64")}></textarea>
-      {:else if importType === "X25519"}
-        <div class="label" style="margin-top: 12px">{$t("keys.ui.preview.publicB64")}</div>
-        <textarea rows="4" bind:value={importX25519PublicB64} placeholder={$t("keys.ui.placeholders.x25519PublicB64")}></textarea>
+      {#if algorithmSpecsById[importType]}
+        {@const importSpec = algorithmSpecsById[importType]}
+        {#each importSpec.key_fields as f (f.field)}
+          <div class="label" style="margin-top: 12px">{$t(f.label_key)}</div>
 
-        <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.secretB64")}</div>
-        <textarea rows="4" bind:value={importX25519SecretB64} placeholder={$t("keys.ui.placeholders.x25519SecretB64")}></textarea>
+          {#if f.field === "symmetric_key_b64"}
+            <textarea rows={f.rows} bind:value={importSymmetricKeyB64} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
+          {:else if f.field === "rsa_public_pem"}
+            <textarea rows={f.rows} bind:value={importRsaPublicPem} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
+          {:else if f.field === "rsa_private_pem"}
+            <textarea rows={f.rows} bind:value={importRsaPrivatePem} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
+          {:else if f.field === "x25519_public_b64"}
+            <textarea rows={f.rows} bind:value={importX25519PublicB64} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
+          {:else if f.field === "x25519_secret_b64"}
+            <textarea rows={f.rows} bind:value={importX25519SecretB64} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
+          {/if}
 
-        <div class="help" style="margin-top: 8px">{$t("keys.ui.hints.x25519NeedFull")}</div>
+          {#if f.hint_key}
+            <div class="help" style="margin-top: 8px">{$t(f.hint_key)}</div>
+          {/if}
+        {/each}
       {:else}
-        <div class="label" style="margin-top: 12px">{$t("keys.ui.preview.publicPem")}</div>
-        <textarea rows="8" bind:value={importRsaPublicPem} placeholder={$t("keys.ui.placeholders.rsaPublicPem")}></textarea>
-
-        <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.privatePem")}</div>
-        <textarea rows="10" bind:value={importRsaPrivatePem} placeholder={$t("keys.ui.placeholders.rsaPrivatePem")}></textarea>
+        <p class="help" style="margin-top: 12px">{$t("common.loading")}</p>
       {/if}
 
       <div class="toolbar" style="margin-top: 12px">
@@ -656,23 +695,29 @@
 
         <div class="divider" style="margin: 12px 0"></div>
 
-        {#if detail.key_type === "AES-256" || detail.key_type === "ChaCha20"}
-          <div class="label">{$t("keys.ui.preview.symmetricKey")}</div>
-          <textarea rows="5" bind:value={detail.symmetric_key_b64}></textarea>
-        {:else if detail.key_type === "X25519"}
-          <div class="label">{$t("keys.ui.preview.publicB64")}</div>
-          <textarea rows="4" bind:value={detail.x25519_public_b64}></textarea>
+      {#if algorithmSpecsById[detail.key_type]}
+          {@const detailSpec = algorithmSpecsById[detail.key_type]}
+          {#each detailSpec.key_fields as f (f.field)}
+            <div class="label" style="margin-top: 12px">{$t(f.label_key)}</div>
 
-          <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.secretB64")}</div>
-          <textarea rows="4" bind:value={detail.x25519_secret_b64}></textarea>
+            {#if f.field === "symmetric_key_b64"}
+              <textarea rows={f.rows} bind:value={detail.symmetric_key_b64}></textarea>
+            {:else if f.field === "rsa_public_pem"}
+              <textarea rows={f.rows} bind:value={detail.rsa_public_pem}></textarea>
+            {:else if f.field === "rsa_private_pem"}
+              <textarea rows={f.rows} bind:value={detail.rsa_private_pem}></textarea>
+            {:else if f.field === "x25519_public_b64"}
+              <textarea rows={f.rows} bind:value={detail.x25519_public_b64}></textarea>
+            {:else if f.field === "x25519_secret_b64"}
+              <textarea rows={f.rows} bind:value={detail.x25519_secret_b64}></textarea>
+            {/if}
 
-          <div class="help" style="margin-top: 8px">{$t("keys.ui.hints.x25519NeedFull")}</div>
+            {#if f.hint_key}
+              <div class="help" style="margin-top: 8px">{$t(f.hint_key)}</div>
+            {/if}
+          {/each}
         {:else}
-          <div class="label">{$t("keys.ui.preview.publicPem")}</div>
-          <textarea rows="8" bind:value={detail.rsa_public_pem}></textarea>
-
-          <div class="label" style="margin-top: 10px">{$t("keys.ui.preview.privatePem")}</div>
-          <textarea rows="10" bind:value={detail.rsa_private_pem}></textarea>
+          <p class="help">{$t("common.loading")}</p>
         {/if}
       {/if}
 

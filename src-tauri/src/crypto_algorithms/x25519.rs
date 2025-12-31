@@ -31,6 +31,23 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     category: AlgorithmCategory::Asymmetric,
     encrypt_needs: "加/解密都需要同时具备公钥+私钥（Base64，32字节）；文本/文件走混合加密",
     decrypt_needs: "加/解密都需要同时具备公钥+私钥（Base64，32字节）",
+    key_fields: &[
+        crate::crypto_algorithms::KeyFieldSpec {
+            field: "x25519_public_b64",
+            label_key: "keys.ui.preview.publicB64",
+            placeholder_key: Some("keys.ui.placeholders.x25519PublicB64"),
+            rows: 4,
+            hint_key: None,
+        },
+        crate::crypto_algorithms::KeyFieldSpec {
+            field: "x25519_secret_b64",
+            label_key: "keys.ui.preview.secretB64",
+            placeholder_key: Some("keys.ui.placeholders.x25519SecretB64"),
+            rows: 4,
+            // 产品规则提示：放在“私钥输入框”下方，避免重复展示。
+            hint_key: Some("keys.ui.hints.x25519NeedFull"),
+        },
+    ],
 };
 
 /// 生成 X25519 密钥对（Base64）：secret_b64 + public_b64。

@@ -28,6 +28,8 @@ pub fn run() {
             commands::health_check,
             // 算法列表
             commands::get_supported_algorithms,
+            // 算法声明（用于 UI 动态表单）
+            commands::get_algorithm_form_specs,
             // 密钥库/应用锁
             commands::keystore_status,
             commands::keystore_unlock,

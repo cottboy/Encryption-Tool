@@ -30,6 +30,22 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     category: AlgorithmCategory::Asymmetric,
     encrypt_needs: "加密需要公钥（PEM）；解密需要私钥（PEM）；长文本/文件走混合加密",
     decrypt_needs: "解密需要私钥（PEM）",
+    key_fields: &[
+        crate::crypto_algorithms::KeyFieldSpec {
+            field: "rsa_public_pem",
+            label_key: "keys.ui.preview.publicPem",
+            placeholder_key: Some("keys.ui.placeholders.rsaPublicPem"),
+            rows: 8,
+            hint_key: None,
+        },
+        crate::crypto_algorithms::KeyFieldSpec {
+            field: "rsa_private_pem",
+            label_key: "keys.ui.preview.privatePem",
+            placeholder_key: Some("keys.ui.placeholders.rsaPrivatePem"),
+            rows: 10,
+            hint_key: None,
+        },
+    ],
 };
 
 fn rsa_oaep_max_len(pub_key: &RsaPublicKey) -> usize {

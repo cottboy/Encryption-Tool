@@ -27,6 +27,16 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     category: AlgorithmCategory::Symmetric,
     encrypt_needs: "需要对称密钥（Base64，32字节）",
     decrypt_needs: "需要对称密钥（Base64，32字节）",
+    key_fields: &[
+        // 对称算法：只需要一段 32 字节密钥（Base64）。
+        crate::crypto_algorithms::KeyFieldSpec {
+            field: "symmetric_key_b64",
+            label_key: "keys.ui.preview.symmetricKey",
+            placeholder_key: Some("keys.ui.placeholders.symmetricB64"),
+            rows: 5,
+            hint_key: None,
+        },
+    ],
 };
 
 /// 解析对称密钥（Base64 32 字节）。
