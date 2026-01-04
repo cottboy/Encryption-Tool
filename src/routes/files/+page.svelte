@@ -37,8 +37,31 @@
     id: string;
     label: string;
     key_type: string;
-    material_kind: string;
+    parts_present: string[];
   };
+
+  type KeyPartEncoding = "base64" | "hex" | "pem" | "utf8";
+
+  type AlgorithmKeyPartSpec = {
+    id: string;
+    encoding: KeyPartEncoding;
+    label_key: string;
+    placeholder_key: string | null;
+    rows: number;
+    hint_key: string | null;
+    required_for_encrypt: boolean;
+    required_for_decrypt: boolean;
+  };
+
+  type AlgorithmFormSpec = {
+    id: string;
+    category: "symmetric" | "asymmetric";
+    encrypt_needs: string;
+    decrypt_needs: string;
+    key_parts: AlgorithmKeyPartSpec[];
+  };
+
+  let algorithmSpecsById = $state<Record<string, AlgorithmFormSpec>>({});
 
   type FileCryptoStartResponse = {
     task_id: string;
@@ -129,34 +152,21 @@
   function canEncryptWithSelectedKey(): boolean {
     const entry = entries.find((e) => e.id === selectedKeyId);
     if (!entry) return false;
+    const spec = algorithmSpecsById[selectedAlgorithm];
+    if (!spec) return false;
 
-    // 产品规则：X25519 必须“公钥+私钥”都齐全才允许加/解密（保持与文本页一致）。
-    if (selectedAlgorithm === "X25519") {
-      return entry.material_kind === "x25519_full";
-    }
-
-    // RSA：仅公钥只能加密；仅私钥只能解密；完整都可以。
-    if (isRsaFamily(selectedAlgorithm)) {
-      return entry.material_kind === "rsa_public_only" || entry.material_kind === "rsa_full";
-    }
-
-    // 对称算法：只要是对称密钥即可。
-    return true;
+    const required = spec.key_parts.filter((p) => p.required_for_encrypt).map((p) => p.id);
+    return required.every((id) => entry.parts_present.includes(id));
   }
 
   function canDecryptWithSelectedKey(): boolean {
     const entry = entries.find((e) => e.id === selectedKeyId);
     if (!entry) return false;
+    const spec = algorithmSpecsById[selectedAlgorithm];
+    if (!spec) return false;
 
-    if (selectedAlgorithm === "X25519") {
-      return entry.material_kind === "x25519_full";
-    }
-
-    if (isRsaFamily(selectedAlgorithm)) {
-      return entry.material_kind === "rsa_private_only" || entry.material_kind === "rsa_full";
-    }
-
-    return true;
+    const required = spec.key_parts.filter((p) => p.required_for_decrypt).map((p) => p.id);
+    return required.every((id) => entry.parts_present.includes(id));
   }
 
   function formatBytes(bytes: number): string {
@@ -195,6 +205,13 @@
     }
   }
 
+  async function refreshFormSpecs() {
+    const specs = await invoke<AlgorithmFormSpec[]>("get_algorithm_form_specs");
+    const map: Record<string, AlgorithmFormSpec> = {};
+    for (const s of specs) map[s.id] = s;
+    algorithmSpecsById = map;
+  }
+
   async function refreshEntries() {
     entries = await invoke<KeyEntryPublic[]>("keystore_list_entries");
   }
@@ -202,6 +219,7 @@
   async function refreshAll() {
     await refreshStatus();
     await refreshAlgorithms();
+    await refreshFormSpecs();
     await refreshEntries();
   }
 

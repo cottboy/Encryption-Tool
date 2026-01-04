@@ -38,8 +38,33 @@
     id: string;
     label: string;
     key_type: string;
-    material_kind: string;
+    parts_present: string[];
   };
+
+  // 用于解析算法声明中的编码字段（目前只用于类型约束）。
+  type KeyPartEncoding = "base64" | "hex" | "pem" | "utf8";
+
+  // 后端算法声明：用于判断“某个密钥是否满足加/解密必需 parts”。
+  type AlgorithmKeyPartSpec = {
+    id: string;
+    encoding: KeyPartEncoding;
+    label_key: string;
+    placeholder_key: string | null;
+    rows: number;
+    hint_key: string | null;
+    required_for_encrypt: boolean;
+    required_for_decrypt: boolean;
+  };
+
+  type AlgorithmFormSpec = {
+    id: string;
+    category: "symmetric" | "asymmetric";
+    encrypt_needs: string;
+    decrypt_needs: string;
+    key_parts: AlgorithmKeyPartSpec[];
+  };
+
+  let algorithmSpecsById = $state<Record<string, AlgorithmFormSpec>>({});
 
   type TextEncryptResponse = {
     ciphertext: string;
@@ -101,6 +126,13 @@
     }
   }
 
+  async function refreshFormSpecs() {
+    const specs = await invoke<AlgorithmFormSpec[]>("get_algorithm_form_specs");
+    const map: Record<string, AlgorithmFormSpec> = {};
+    for (const s of specs) map[s.id] = s;
+    algorithmSpecsById = map;
+  }
+
   async function refreshEntries() {
     // 若密钥库已加密但未解锁，后端会返回明确错误；这里交给 message 展示即可。
     entries = await invoke<KeyEntryPublic[]>("keystore_list_entries");
@@ -116,40 +148,50 @@
     return algo === "RSA2048" || algo === "RSA4096";
   }
 
-  // 能力检查：根据算法 + 材料类型决定是否允许加密/解密。
-  // - RSA：
-  //   - 仅公钥：只能加密
-  //   - 仅私钥：只能解密
-  //   - 完整：加密+解密
-  // - X25519：产品规则要求必须同时具备公钥+私钥才允许加/解密
   function canEncryptWithSelectedKey(): boolean {
     const entry = entries.find((e) => e.id === selectedKeyId);
     if (!entry) return false;
+    const spec = algorithmSpecsById[selectedAlgorithm];
+    if (!spec) return false;
 
-    if (selectedAlgorithm === "X25519") {
-      return entry.material_kind === "x25519_full";
-    }
-
-    if (isRsaFamily(selectedAlgorithm)) {
-      return entry.material_kind === "rsa_public_only" || entry.material_kind === "rsa_full";
-    }
-
-    return true;
+    // 规则来源：算法文件声明 required_for_encrypt。
+    const required = spec.key_parts.filter((p) => p.required_for_encrypt).map((p) => p.id);
+    return required.every((id) => entry.parts_present.includes(id));
   }
 
   function canDecryptWithSelectedKey(): boolean {
     const entry = entries.find((e) => e.id === selectedKeyId);
     if (!entry) return false;
+    const spec = algorithmSpecsById[selectedAlgorithm];
+    if (!spec) return false;
 
-    if (selectedAlgorithm === "X25519") {
-      return entry.material_kind === "x25519_full";
+    // 规则来源：算法文件声明 required_for_decrypt。
+    const required = spec.key_parts.filter((p) => p.required_for_decrypt).map((p) => p.id);
+    return required.every((id) => entry.parts_present.includes(id));
+  }
+
+  function materialKindFromParts(keyType: string, partsPresent: string[]): string {
+    const has = (id: string) => partsPresent.includes(id);
+
+    if (keyType === "AES-256" || keyType === "ChaCha20") return "symmetric";
+
+    if (keyType === "RSA2048" || keyType === "RSA4096") {
+      const pub = has("rsa_public_pem");
+      const priv = has("rsa_private_pem");
+      if (pub && priv) return "rsa_full";
+      if (pub) return "rsa_public_only";
+      return "rsa_private_only";
     }
 
-    if (isRsaFamily(selectedAlgorithm)) {
-      return entry.material_kind === "rsa_private_only" || entry.material_kind === "rsa_full";
+    if (keyType === "X25519") {
+      const pub = has("x25519_public_b64");
+      const sec = has("x25519_secret_b64");
+      if (pub && sec) return "x25519_full";
+      if (pub) return "x25519_public_only";
+      return "x25519_secret_only";
     }
 
-    return true;
+    return "";
   }
 
   function typeSuffix(materialKind: string): string {
@@ -187,6 +229,7 @@
       message = "";
       await refreshStatus();
       await refreshAlgorithms();
+      await refreshFormSpecs();
       await refreshEntries();
     };
 
@@ -334,9 +377,8 @@
 
   function keyOptionLabel(e: KeyEntryPublic): string {
     // 下拉选项附带“仅公钥/仅私钥/完整”，减少用户选错。
-    if (e.material_kind !== "symmetric") {
-      return `${e.label} ${typeSuffix(e.material_kind)}`;
-    }
+    const kind = materialKindFromParts(e.key_type, e.parts_present);
+    if (kind !== "symmetric") return `${e.label} ${typeSuffix(kind)}`;
     return e.label;
   }
 </script>

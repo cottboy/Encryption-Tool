@@ -19,7 +19,7 @@ use sha2::Sha256;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::Zeroizing;
 
-use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta};
+use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta, KeyPartSpec};
 use crate::file_crypto::FileCipherHeader;
 use crate::keystore;
 use crate::text_crypto::{TextCipherPayload, TEXT_CIPHER_VERSION};
@@ -31,23 +31,30 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     category: AlgorithmCategory::Asymmetric,
     encrypt_needs: "加/解密都需要同时具备公钥+私钥（Base64，32字节）；文本/文件走混合加密",
     decrypt_needs: "加/解密都需要同时具备公钥+私钥（Base64，32字节）",
-    key_fields: &[
-        crate::crypto_algorithms::KeyFieldSpec {
-            field: "x25519_public_b64",
+    key_parts: &[
+        KeyPartSpec {
+            id: "x25519_public_b64",
+            encoding: keystore::KeyPartEncoding::Base64,
             label_key: "keys.ui.preview.publicB64",
             placeholder_key: Some("keys.ui.placeholders.x25519PublicB64"),
             rows: 4,
             hint_key: None,
+            required_for_encrypt: true,
+            required_for_decrypt: true,
         },
-        crate::crypto_algorithms::KeyFieldSpec {
-            field: "x25519_secret_b64",
+        KeyPartSpec {
+            id: "x25519_secret_b64",
+            encoding: keystore::KeyPartEncoding::Base64,
             label_key: "keys.ui.preview.secretB64",
             placeholder_key: Some("keys.ui.placeholders.x25519SecretB64"),
             rows: 4,
             // 产品规则提示：放在“私钥输入框”下方，避免重复展示。
             hint_key: Some("keys.ui.hints.x25519NeedFull"),
+            required_for_encrypt: true,
+            required_for_decrypt: true,
         },
     ],
+    normalize_parts,
 };
 
 /// 生成 X25519 密钥对（Base64）：secret_b64 + public_b64。
@@ -63,60 +70,120 @@ pub fn generate_keypair_b64() -> (String, String) {
 }
 
 fn parse_public(entry: &keystore::KeyEntry) -> Result<X25519PublicKey, String> {
-    match &entry.material {
-        keystore::KeyMaterial::X25519 { public_b64, .. } => {
-            let public_b64 = public_b64
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| "X25519 缺少公钥".to_string())?;
-            let bytes = utils::decode_b64_32("X25519 公钥", public_b64)?;
-            Ok(X25519PublicKey::from(*bytes))
-        }
-        _ => Err("密钥类型不匹配：需要 X25519".to_string()),
+    let part = keystore::find_part(entry, "x25519_public_b64")
+        .ok_or_else(|| "X25519 缺少公钥".to_string())?;
+    if part.encoding != keystore::KeyPartEncoding::Base64 {
+        return Err("x25519_public_b64 的 encoding 必须为 base64".to_string());
     }
+    let bytes = utils::decode_b64_32("X25519 公钥", &part.value)?;
+    Ok(X25519PublicKey::from(*bytes))
 }
 
 fn parse_secret(entry: &keystore::KeyEntry) -> Result<X25519StaticSecret, String> {
-    match &entry.material {
-        keystore::KeyMaterial::X25519 { secret_b64, .. } => {
-            let secret_b64 = secret_b64
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| crate::text_crypto::DECRYPT_FAIL_MSG.to_string())?;
-            let bytes = utils::decode_b64_32("X25519 私钥", secret_b64)?;
-            Ok(X25519StaticSecret::from(*bytes))
-        }
-        _ => Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string()),
+    let part = keystore::find_part(entry, "x25519_secret_b64")
+        .ok_or_else(|| crate::text_crypto::DECRYPT_FAIL_MSG.to_string())?;
+    if part.encoding != keystore::KeyPartEncoding::Base64 {
+        return Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string());
     }
+    let bytes = utils::decode_b64_32("X25519 私钥", &part.value)?;
+    Ok(X25519StaticSecret::from(*bytes))
 }
 
 /// 产品规则：X25519 必须“公钥+私钥”都齐全才允许加/解密。
 fn ensure_full(entry: &keystore::KeyEntry) -> Result<(), String> {
-    match &entry.material {
-        keystore::KeyMaterial::X25519 {
-            secret_b64,
-            public_b64,
-        } => {
-            let has_secret = secret_b64
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .is_some();
-            let has_public = public_b64
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .is_some();
-            if has_secret && has_public {
-                Ok(())
-            } else {
-                Err("X25519 加/解密需要同时包含公钥与私钥（当前条目不完整）".to_string())
-            }
-        }
-        _ => Err("密钥类型不匹配：需要 X25519".to_string()),
+    let has_secret = keystore::has_part(entry, "x25519_secret_b64");
+    let has_public = keystore::has_part(entry, "x25519_public_b64");
+    if has_secret && has_public {
+        Ok(())
+    } else {
+        Err("X25519 加/解密需要同时包含公钥与私钥（当前条目不完整）".to_string())
     }
+}
+
+/// 规范化并校验“导入/编辑保存”提交的 parts（X25519）。
+///
+/// 规则（按产品约束）：
+/// - 允许仅公钥 / 仅私钥 / 完整，但真正加/解密必须完整（ensure_full 会检查）。
+fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPart>, String> {
+    let mut map = utils::collect_parts_unique(parts)?;
+
+    let public_in = map.remove("x25519_public_b64");
+    let secret_in = map.remove("x25519_secret_b64");
+
+    if public_in.is_none() && secret_in.is_none() {
+        return Err("X25519 至少需要填写公钥或私钥".to_string());
+    }
+
+    if !map.is_empty() {
+        let extra = map.keys().cloned().collect::<Vec<_>>().join(", ");
+        return Err(format!("X25519 不支持的字段：{extra}"));
+    }
+
+    // 公钥：Base64 解码后必须为 32 字节，并规范化输出为标准 Base64。
+    let public_norm = if let Some(p) = public_in {
+        if p.encoding != keystore::KeyPartEncoding::Base64 {
+            return Err("x25519_public_b64 的 encoding 必须为 base64".to_string());
+        }
+        let bytes = B64
+            .decode(p.value.trim().as_bytes())
+            .map_err(|e| format!("X25519 公钥 Base64 解码失败：{e}"))?;
+        if bytes.len() != 32 {
+            return Err("X25519 公钥必须为 32 字节（Base64 解码后）".to_string());
+        }
+        Some(B64.encode(bytes))
+    } else {
+        None
+    };
+
+    // 私钥：Base64 解码后必须为 32 字节，并规范化输出为标准 Base64。
+    let secret_norm = if let Some(p) = secret_in {
+        if p.encoding != keystore::KeyPartEncoding::Base64 {
+            return Err("x25519_secret_b64 的 encoding 必须为 base64".to_string());
+        }
+        let bytes = B64
+            .decode(p.value.trim().as_bytes())
+            .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?;
+        if bytes.len() != 32 {
+            return Err("X25519 私钥必须为 32 字节（Base64 解码后）".to_string());
+        }
+        Some(B64.encode(bytes))
+    } else {
+        None
+    };
+
+    // 若两者都提供：校验公钥必须与私钥匹配（不做自动修复/推导）。
+    if let (Some(secret_b64), Some(public_b64)) = (&secret_norm, &public_norm) {
+        let secret_vec = B64
+            .decode(secret_b64.as_bytes())
+            .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?;
+        let secret_bytes: [u8; 32] = secret_vec
+            .as_slice()
+            .try_into()
+            .map_err(|_| "X25519 私钥长度不正确".to_string())?;
+        let derived_public = X25519PublicKey::from(&X25519StaticSecret::from(secret_bytes));
+        let derived_b64 = B64.encode(derived_public.as_bytes());
+        if derived_b64 != public_b64.as_str() {
+            return Err("X25519 公钥与私钥不匹配".to_string());
+        }
+    }
+
+    let mut out = Vec::new();
+    if let Some(public_b64) = public_norm {
+        out.push(keystore::KeyPart {
+            id: "x25519_public_b64".to_string(),
+            encoding: keystore::KeyPartEncoding::Base64,
+            value: public_b64,
+        });
+    }
+    if let Some(secret_b64) = secret_norm {
+        out.push(keystore::KeyPart {
+            id: "x25519_secret_b64".to_string(),
+            encoding: keystore::KeyPartEncoding::Base64,
+            value: secret_b64,
+        });
+    }
+
+    Ok(out)
 }
 
 pub fn text_encrypt(

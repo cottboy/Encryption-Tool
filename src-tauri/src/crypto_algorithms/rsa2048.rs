@@ -13,6 +13,7 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::rngs::OsRng;
 use rand::RngCore;
+use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::{
     DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, LineEnding,
 };
@@ -21,7 +22,7 @@ use rsa::{Oaep, RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta};
+use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta, KeyPartSpec};
 use crate::file_crypto::FileCipherHeader;
 use crate::keystore;
 use crate::text_crypto::{TextCipherPayload, TEXT_CIPHER_VERSION};
@@ -31,23 +32,30 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     category: AlgorithmCategory::Asymmetric,
     encrypt_needs: "加密需要公钥（PEM）；解密需要私钥（PEM）；长文本/文件走混合加密",
     decrypt_needs: "解密需要私钥（PEM）",
-    key_fields: &[
+    key_parts: &[
         // RSA：允许仅公钥/仅私钥/完整（由后端校验与能力限制保证）。
-        crate::crypto_algorithms::KeyFieldSpec {
-            field: "rsa_public_pem",
+        KeyPartSpec {
+            id: "rsa_public_pem",
+            encoding: keystore::KeyPartEncoding::Pem,
             label_key: "keys.ui.preview.publicPem",
             placeholder_key: Some("keys.ui.placeholders.rsaPublicPem"),
             rows: 8,
             hint_key: None,
+            required_for_encrypt: true,
+            required_for_decrypt: false,
         },
-        crate::crypto_algorithms::KeyFieldSpec {
-            field: "rsa_private_pem",
+        KeyPartSpec {
+            id: "rsa_private_pem",
+            encoding: keystore::KeyPartEncoding::Pem,
             label_key: "keys.ui.preview.privatePem",
             placeholder_key: Some("keys.ui.placeholders.rsaPrivatePem"),
             rows: 10,
             hint_key: None,
+            required_for_encrypt: false,
+            required_for_decrypt: true,
         },
     ],
+    normalize_parts,
 };
 
 /// 计算 RSA-OAEP 可直接加密的最大长度（字节）。
@@ -63,32 +71,24 @@ fn rsa_oaep_max_len(pub_key: &RsaPublicKey) -> usize {
 /// - 私钥条目：要求同时包含 public_pem（产品允许仅私钥，但仅私钥不能加密）
 /// - 公钥条目：直接使用
 fn parse_rsa_public(entry: &keystore::KeyEntry) -> Result<RsaPublicKey, String> {
-    match &entry.material {
-        keystore::KeyMaterial::RsaPrivate { public_pem, .. } => {
-            let pem = public_pem
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| "RSA 加密需要公钥：该条目仅包含私钥".to_string())?;
-            RsaPublicKey::from_public_key_pem(pem).map_err(|e| format!("RSA 公钥解析失败：{e}"))
-        }
-        keystore::KeyMaterial::RsaPublic { public_pem } => {
-            RsaPublicKey::from_public_key_pem(public_pem.trim())
-                .map_err(|e| format!("RSA 公钥解析失败：{e}"))
-        }
-        _ => Err("密钥类型不匹配：需要 RSA".to_string()),
+    let part = keystore::find_part(entry, "rsa_public_pem")
+        .ok_or_else(|| "RSA 加密需要公钥：该条目缺少 rsa_public_pem".to_string())?;
+    if part.encoding != keystore::KeyPartEncoding::Pem {
+        return Err("rsa_public_pem 的 encoding 必须为 pem".to_string());
     }
+    RsaPublicKey::from_public_key_pem(part.value.trim())
+        .map_err(|e| format!("RSA 公钥解析失败：{e}"))
 }
 
 /// 解析 RSA 私钥（仅支持 PKCS8 PEM）。
 fn parse_rsa_private(entry: &keystore::KeyEntry) -> Result<RsaPrivateKey, String> {
-    match &entry.material {
-        keystore::KeyMaterial::RsaPrivate { private_pem, .. } => {
-            RsaPrivateKey::from_pkcs8_pem(private_pem.trim())
-                .map_err(|_| crate::text_crypto::DECRYPT_FAIL_MSG.to_string())
-        }
-        _ => Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string()),
+    let part = keystore::find_part(entry, "rsa_private_pem")
+        .ok_or_else(|| crate::text_crypto::DECRYPT_FAIL_MSG.to_string())?;
+    if part.encoding != keystore::KeyPartEncoding::Pem {
+        return Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string());
     }
+    RsaPrivateKey::from_pkcs8_pem(part.value.trim())
+        .map_err(|_| crate::text_crypto::DECRYPT_FAIL_MSG.to_string())
 }
 
 /// 生成 RSA2048 密钥对（PKCS8 私钥 PEM + SPKI 公钥 PEM）。
@@ -267,5 +267,105 @@ pub fn file_decrypt_unwrap_data_key(
     }
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&session_key);
+    Ok(out)
+}
+
+/// 规范化并校验“导入/编辑保存”提交的 parts（RSA2048）。
+///
+/// 支持的输入：
+/// - 仅公钥：rsa_public_pem
+/// - 仅私钥：rsa_private_pem
+/// - 公钥 + 私钥：两者都填（会校验匹配）
+fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPart>, String> {
+    let mut map = super::utils::collect_parts_unique(parts)?;
+
+    let public_in = map.remove("rsa_public_pem");
+    let private_in = map.remove("rsa_private_pem");
+
+    if public_in.is_none() && private_in.is_none() {
+        return Err("RSA 至少需要填写公钥或私钥".to_string());
+    }
+
+    // 防御：RSA2048 不接受额外字段。
+    if !map.is_empty() {
+        let extra = map.keys().cloned().collect::<Vec<_>>().join(", ");
+        return Err(format!("RSA2048 不支持的字段：{extra}"));
+    }
+
+    let private_norm = if let Some(p) = private_in {
+        if p.encoding != keystore::KeyPartEncoding::Pem {
+            return Err("rsa_private_pem 的 encoding 必须为 pem".to_string());
+        }
+
+        let private_key = RsaPrivateKey::from_pkcs8_pem(p.value.trim())
+            .or_else(|_| RsaPrivateKey::from_pkcs1_pem(p.value.trim()))
+            .map_err(|e| format!("RSA 私钥解析失败：{e}"))?;
+
+        if private_key.n().bits() as usize != 2048 {
+            return Err(format!(
+                "RSA 密钥位数不匹配：期望 2048，实际 {}",
+                private_key.n().bits()
+            ));
+        }
+
+        let private_pem = private_key
+            .to_pkcs8_pem(LineEnding::LF)
+            .map_err(|e| format!("RSA 私钥导出失败：{e}"))?
+            .to_string();
+
+        Some((private_key, private_pem))
+    } else {
+        None
+    };
+
+    let public_norm = if let Some(p) = public_in {
+        if p.encoding != keystore::KeyPartEncoding::Pem {
+            return Err("rsa_public_pem 的 encoding 必须为 pem".to_string());
+        }
+
+        let pub_key =
+            RsaPublicKey::from_public_key_pem(p.value.trim()).map_err(|e| format!("RSA 公钥解析失败：{e}"))?;
+
+        if pub_key.n().bits() as usize != 2048 {
+            return Err(format!(
+                "RSA 密钥位数不匹配：期望 2048，实际 {}",
+                pub_key.n().bits()
+            ));
+        }
+
+        let public_pem = pub_key
+            .to_public_key_pem(LineEnding::LF)
+            .map_err(|e| format!("RSA 公钥导出失败：{e}"))?
+            .to_string();
+
+        Some((pub_key, public_pem))
+    } else {
+        None
+    };
+
+    // 若同时提供公钥+私钥：必须匹配。
+    if let (Some((priv_key, _)), Some((pub_key, _))) = (&private_norm, &public_norm) {
+        let derived = RsaPublicKey::from(priv_key);
+        if derived.n() != pub_key.n() || derived.e() != pub_key.e() {
+            return Err("RSA 公钥与私钥不匹配".to_string());
+        }
+    }
+
+    let mut out = Vec::new();
+    if let Some((_, public_pem)) = public_norm {
+        out.push(keystore::KeyPart {
+            id: "rsa_public_pem".to_string(),
+            encoding: keystore::KeyPartEncoding::Pem,
+            value: public_pem,
+        });
+    }
+    if let Some((_, private_pem)) = private_norm {
+        out.push(keystore::KeyPart {
+            id: "rsa_private_pem".to_string(),
+            encoding: keystore::KeyPartEncoding::Pem,
+            value: private_pem,
+        });
+    }
+
     Ok(out)
 }

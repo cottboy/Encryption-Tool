@@ -14,7 +14,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key as AesKey, Nonce as AesNonce};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
-use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta};
+use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta, KeyPartSpec};
 use crate::file_crypto::FileCipherHeader;
 use crate::keystore;
 use crate::text_crypto::{TextCipherPayload, TEXT_CIPHER_VERSION};
@@ -27,24 +27,33 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     category: AlgorithmCategory::Symmetric,
     encrypt_needs: "需要对称密钥（Base64，32字节）",
     decrypt_needs: "需要对称密钥（Base64，32字节）",
-    key_fields: &[
+    key_parts: &[
         // 对称算法：只需要一段 32 字节密钥（Base64）。
-        crate::crypto_algorithms::KeyFieldSpec {
-            field: "symmetric_key_b64",
+        KeyPartSpec {
+            id: "symmetric_key_b64",
+            encoding: keystore::KeyPartEncoding::Base64,
             label_key: "keys.ui.preview.symmetricKey",
             placeholder_key: Some("keys.ui.placeholders.symmetricB64"),
             rows: 5,
             hint_key: None,
+            required_for_encrypt: true,
+            required_for_decrypt: true,
         },
     ],
+    normalize_parts,
 };
 
 /// 解析对称密钥（Base64 32 字节）。
 fn parse_symmetric_key(entry: &keystore::KeyEntry) -> Result<zeroize::Zeroizing<[u8; 32]>, String> {
-    match &entry.material {
-        keystore::KeyMaterial::Symmetric { key_b64 } => utils::decode_b64_32("对称密钥", key_b64),
-        _ => Err("密钥类型不匹配：需要对称密钥".to_string()),
+    let part = keystore::find_part(entry, "symmetric_key_b64")
+        .ok_or_else(|| "密钥缺少对称密钥（symmetric_key_b64）".to_string())?;
+
+    // 这里严格校验 encoding，避免“同一个 id 实际内容含义不一致”导致解析混乱。
+    if part.encoding != keystore::KeyPartEncoding::Base64 {
+        return Err("对称密钥的 encoding 必须为 base64".to_string());
     }
+
+    utils::decode_b64_32("对称密钥", &part.value)
 }
 
 /// AES-256-GCM 加密：输入 key(32) + nonce(12) + 明文，输出密文（含 tag）。
@@ -160,4 +169,42 @@ pub fn file_encrypt_prepare(
         nonce_prefix_b64: meta.nonce_prefix_b64,
     };
     Ok((header, key_32))
+}
+
+/// 规范化并校验“导入/编辑保存”提交的 parts。
+///
+/// 说明：
+/// - 这段逻辑放在算法文件里：避免 commands.rs 写死 if/else，保持“新增算法只新增一个文件”。
+/// - AES-256 仅接受一个 part：symmetric_key_b64（base64，解码后 32 字节）。
+fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPart>, String> {
+    let mut map = utils::collect_parts_unique(parts)?;
+
+    // 取出并校验对称密钥。
+    let key_part = map
+        .remove("symmetric_key_b64")
+        .ok_or_else(|| "缺少对称密钥（symmetric_key_b64）".to_string())?;
+    if key_part.encoding != keystore::KeyPartEncoding::Base64 {
+        return Err("symmetric_key_b64 的 encoding 必须为 base64".to_string());
+    }
+
+    // 校验并标准化：确保 Base64 解码后恰好 32 字节，再重新编码成规范 Base64。
+    let decoded = B64
+        .decode(key_part.value.trim().as_bytes())
+        .map_err(|e| format!("Base64 解码失败：{e}"))?;
+    if decoded.len() != 32 {
+        return Err("对称密钥长度必须为 32 字节（Base64 解码后）".to_string());
+    }
+    let normalized_b64 = B64.encode(decoded);
+
+    // 防御：AES-256 不接受额外字段，避免误存垃圾数据。
+    if !map.is_empty() {
+        let extra = map.keys().cloned().collect::<Vec<_>>().join(", ");
+        return Err(format!("AES-256 不支持的字段：{extra}"));
+    }
+
+    Ok(vec![keystore::KeyPart {
+        id: "symmetric_key_b64".to_string(),
+        encoding: keystore::KeyPartEncoding::Base64,
+        value: normalized_b64,
+    }])
 }

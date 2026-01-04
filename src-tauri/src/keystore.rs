@@ -5,6 +5,13 @@
     2) 密钥管理页进入后直接列出密钥，提供生成/导入/导出/删除等操作。
     3) 允许用户启用“密钥库加密（应用锁）”：下次打开软件必须输入密码才能使用。
 
+  本阶段重要变更（为了支持“算法模块化 + 任意字段扩展”）：
+  - 旧版 KeyStore 使用“固定字段/固定枚举（RSA/X25519/对称）”存密钥材料，扩展新算法会卡死在结构体字段名上。
+  - 新版 KeyStore 改为“通用 parts 结构”：
+    - 一个密钥条目（KeyEntry）里保存 N 个零件（KeyPart）
+    - 每个零件包含：id / encoding / value
+  - 这样新增算法时：只要声明它需要哪些 parts，前端就能动态渲染输入框，后端也能原样存盘。
+
   文件与格式：
   - 存储路径：AppData/keystore.json
   - JSON 容器：
@@ -34,7 +41,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 /// 密钥库版本：结构变更时用于迁移。
-const KEYSTORE_VERSION: u32 = 1;
+///
+/// 注意：
+/// - 当前处于开发阶段，按你的要求不做向后兼容；
+/// - 版本升级后旧 keystore.json 可能无法读取，需要删除后重新创建。
+const KEYSTORE_VERSION: u32 = 2;
 
 /// 密钥库文件名（固定单文件）。
 const KEYSTORE_FILENAME: &str = "keystore.json";
@@ -57,39 +68,37 @@ pub struct KeyStorePlain {
     pub key_entries: Vec<KeyEntry>,
 }
 
-/// 密钥材料：
-/// - 统一放在密钥库里，后续文本/文件加解密只需要通过 id 找到对应材料即可。
-/// - 注意：这里保存的是“密钥材料本身”（密钥库若启用应用锁，会整体加密落盘）。
+/// KeyPart 的编码类型：用于表达 value 的语义（Base64/PEM/Hex/UTF8）。
+///
+/// 说明：
+/// - encoding 的存在不是为了“强制限制”，而是为了让算法模块能做一致的解析/校验；
+/// - 未来新增算法时可以继续复用这些 encoding，不需要改 KeyStore 结构。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyPartEncoding {
+    /// Base64：用于二进制材料（例如对称密钥、X25519 公私钥）。
+    Base64,
+    /// Hex：用于二进制材料的十六进制文本表示（可选）。
+    Hex,
+    /// PEM：用于 RSA 公私钥等 PEM 文本。
+    Pem,
+    /// UTF-8：用于纯文本类材料（按你的要求新增）。
+    Utf8,
+}
+
+/// 通用“密钥零件（part）”：KeyEntry 的可扩展材料载体。
+///
+/// 设计目标：
+/// - 不再为每一种算法/材料在后端写死字段名；
+/// - 通过 parts 列表实现“新增算法只新增一个算法文件 + 声明 parts”。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum KeyMaterial {
-    /// 对称密钥（AES-256 / ChaCha20）：32 字节。
-    Symmetric { key_b64: String },
-
-    /// RSA 私钥（PKCS8 PEM）。
-    ///
-    /// 说明：
-    /// - 为了支持“仅导入私钥”的场景，这里把 `public_pem` 设计为可选字段。
-    /// - 如果 `public_pem` 缺失，则在 UI/业务规则上视为“仅私钥”，只允许解密，不允许加密。
-    /// - 如果 `public_pem` 存在，则视为“完整”，允许加密+解密。
-    RsaPrivate {
-        private_pem: String,
-        public_pem: Option<String>,
-    },
-
-    /// RSA 仅公钥（SPKI PEM）。
-    RsaPublic { public_pem: String },
-
-    /// X25519 密钥材料：
-    ///
-    /// 说明：
-    /// - 需求变更：允许用户“只导入公钥”或“只导入私钥”。
-    /// - 由于产品规则要求：X25519 必须同时拥有公钥+私钥才允许加/解密，因此这两个字段都设计为可选。
-    /// - `secret_b64` / `public_b64` 的字节长度均要求为 32（Base64 解码后）。
-    X25519 {
-        secret_b64: Option<String>,
-        public_b64: Option<String>,
-    },
+pub struct KeyPart {
+    /// 零件 id：由算法文件声明并与前端表单绑定（例如 rsa_public_pem）。
+    pub id: String,
+    /// 零件编码：用于算法模块解析 value。
+    pub encoding: KeyPartEncoding,
+    /// 零件值：具体内容（例如 Base64 字符串 / PEM 文本 / Hex 文本 / UTF-8 文本）。
+    pub value: String,
 }
 
 /// 单个密钥条目。
@@ -104,8 +113,8 @@ pub struct KeyEntry {
     /// 密钥类型（例如 AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519）。
     pub key_type: String,
 
-    /// 密钥材料。
-    pub material: KeyMaterial,
+    /// 通用 parts：该密钥条目包含的所有材料零件。
+    pub parts: Vec<KeyPart>,
 }
 
 /// 密钥库文件（磁盘上的 JSON 容器）。
@@ -406,6 +415,27 @@ pub fn delete_entry(plain: &mut KeyStorePlain, id: &str) -> bool {
     let before = plain.key_entries.len();
     plain.key_entries.retain(|e| e.id != id);
     before != plain.key_entries.len()
+}
+
+/// 在条目中按 part id 查找零件（只读）。
+///
+/// 说明：
+/// - parts 是可扩展列表，因此我们用线性查找即可（当前规模很小）；
+/// - 若未来 parts 很多，再考虑引入 Map 缓存（但目前不必过度设计）。
+pub fn find_part<'a>(entry: &'a KeyEntry, id: &str) -> Option<&'a KeyPart> {
+    let id = id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    entry.parts.iter().find(|p| p.id == id)
+}
+
+/// 判断条目是否包含某个 part（用于“密钥完整度”判断）。
+pub fn has_part(entry: &KeyEntry, id: &str) -> bool {
+    find_part(entry, id)
+        .map(|p| p.value.trim())
+        .filter(|v| !v.is_empty())
+        .is_some()
 }
 
 /// 生成随机 ID（用于密钥条目）。

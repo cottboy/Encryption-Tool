@@ -24,7 +24,15 @@
     id: string;
     label: string;
     key_type: string;
-    material_kind: string;
+    parts_present: string[];
+  };
+
+  // 通用 parts 结构：与后端 KeyPart 对齐（用于导入/编辑/展示）。
+  type KeyPartEncoding = "base64" | "hex" | "pem" | "utf8";
+  type KeyPart = {
+    id: string;
+    encoding: KeyPartEncoding;
+    value: string;
   };
 
   // 密钥详情：用于“点击密钥行 → 弹窗编辑/复制”。
@@ -33,31 +41,15 @@
     id: string;
     label: string;
     key_type: string;
-    material_kind: string;
-
-    symmetric_key_b64: string | null;
-
-    rsa_public_pem: string | null;
-    rsa_private_pem: string | null;
-
-    x25519_public_b64: string | null;
-    x25519_secret_b64: string | null;
+    parts: KeyPart[];
   };
 
-  // 弹窗编辑态：为了让 `bind:value` 稳定工作，这里把所有字段都归一化为 string（缺失则置空）。
+  // 弹窗编辑态：为了让输入框稳定工作，这里把 parts 转成 “id -> value” 映射（缺失则视为空）。
   type KeyDetail = {
     id: string;
     label: string;
     key_type: string;
-    material_kind: string;
-
-    symmetric_key_b64: string;
-
-    rsa_public_pem: string;
-    rsa_private_pem: string;
-
-    x25519_public_b64: string;
-    x25519_secret_b64: string;
+    parts: Record<string, string>;
   };
 
   // 支持的算法列表：
@@ -70,12 +62,15 @@
   let supportedTypes = $state<string[]>([]);
 
   // 后端算法声明（用于“按声明动态渲染输入表单”）
-  type AlgorithmKeyFieldSpec = {
-    field: string;
+  type AlgorithmKeyPartSpec = {
+    id: string;
+    encoding: KeyPartEncoding;
     label_key: string;
     placeholder_key: string | null;
     rows: number;
     hint_key: string | null;
+    required_for_encrypt: boolean;
+    required_for_decrypt: boolean;
   };
 
   type AlgorithmFormSpec = {
@@ -83,7 +78,7 @@
     category: "symmetric" | "asymmetric";
     encrypt_needs: string;
     decrypt_needs: string;
-    key_fields: AlgorithmKeyFieldSpec[];
+    key_parts: AlgorithmKeyPartSpec[];
   };
 
   // 按算法 id 建索引，方便快速查找当前算法需要哪些字段。
@@ -126,11 +121,17 @@
   // Import
   let importType = $state<string>("AES-256");
   let importLabel = $state("");
-  let importSymmetricKeyB64 = $state("");
-  let importRsaPublicPem = $state("");
-  let importRsaPrivatePem = $state("");
-  let importX25519PublicB64 = $state("");
-  let importX25519SecretB64 = $state("");
+  // 导入弹窗的 parts 输入（id -> value）。
+  let importParts = $state<Record<string, string>>({});
+
+  // 当导入弹窗开启且算法切换时，清空输入：
+  // - 避免把上一个算法的输入残留误认为“当前算法的字段”。
+  $effect(() => {
+    if (!showImport) return;
+    // 显式依赖 importType：只有算法变化才重置。
+    importType;
+    importParts = {};
+  });
 
   // Lock (encrypt keystore)
   let lockPassword = $state("");
@@ -264,26 +265,13 @@
       return;
     }
 
-    // 手动导入：前端把用户输入的密钥材料直接传给后端做校验与落库。
-    // 注意：对称/非对称的字段不同，这里只传当前类型相关字段，避免混淆。
     await invoke("keystore_import_key_manual", {
-      req: buildUpsertPayload(importType, {
-        label: name,
-        symmetric_key_b64: importSymmetricKeyB64,
-        rsa_public_pem: importRsaPublicPem,
-        rsa_private_pem: importRsaPrivatePem,
-        x25519_public_b64: importX25519PublicB64,
-        x25519_secret_b64: importX25519SecretB64
-      })
+      req: buildUpsertPayload(importType, name, importParts)
     });
 
     showImport = false;
     importLabel = "";
-    importSymmetricKeyB64 = "";
-    importRsaPublicPem = "";
-    importRsaPrivatePem = "";
-    importX25519PublicB64 = "";
-    importX25519SecretB64 = "";
+    importParts = {};
     await refresh();
     notifyKeystoreChanged();
   }
@@ -311,10 +299,37 @@
     }
   }
 
+  function materialKindFromParts(keyType: string, partsPresent: string[]): string {
+    const has = (id: string) => partsPresent.includes(id);
+
+    // 对称：不需要区分“仅公钥/仅私钥/完整”。
+    if (keyType === "AES-256" || keyType === "ChaCha20") return "symmetric";
+
+    // RSA：公钥/私钥任意存在都允许存，但加/解密能力由其他页面/按钮控制。
+    if (keyType === "RSA2048" || keyType === "RSA4096") {
+      const pub = has("rsa_public_pem");
+      const priv = has("rsa_private_pem");
+      if (pub && priv) return "rsa_full";
+      if (pub) return "rsa_public_only";
+      return "rsa_private_only";
+    }
+
+    // X25519：同样区分公钥/私钥/完整（产品规则：加/解密必须完整）。
+    if (keyType === "X25519") {
+      const pub = has("x25519_public_b64");
+      const sec = has("x25519_secret_b64");
+      if (pub && sec) return "x25519_full";
+      if (pub) return "x25519_public_only";
+      return "x25519_secret_only";
+    }
+
+    return "";
+  }
+
   function keyTypeDisplay(e: KeyEntryPublic): string {
-    // 对称：直接显示算法名；非对称：追加“仅公钥/仅私钥/完整”。
-    if (e.material_kind === "symmetric") return e.key_type;
-    return `${e.key_type}${typeSuffix(e.material_kind)}`;
+    const kind = materialKindFromParts(e.key_type, e.parts_present);
+    if (kind === "symmetric") return e.key_type;
+    return `${e.key_type}${typeSuffix(kind)}`;
   }
 
   // =====================
@@ -333,13 +348,15 @@
 
     try {
       const raw = await invoke<KeyDetailRaw>("keystore_get_key_detail", { req: { id: entry.id } });
+      const map: Record<string, string> = {};
+      for (const p of raw.parts) {
+        map[p.id] = p.value ?? "";
+      }
       detail = {
-        ...raw,
-        symmetric_key_b64: raw.symmetric_key_b64 ?? "",
-        rsa_public_pem: raw.rsa_public_pem ?? "",
-        rsa_private_pem: raw.rsa_private_pem ?? "",
-        x25519_public_b64: raw.x25519_public_b64 ?? "",
-        x25519_secret_b64: raw.x25519_secret_b64 ?? ""
+        id: raw.id,
+        label: raw.label,
+        key_type: raw.key_type,
+        parts: map
       };
     } catch (e) {
       modalMessage = formatError(e);
@@ -347,50 +364,27 @@
     }
   }
 
-  function buildUpsertPayload(tp: string, fields: {
-    label: string;
-    symmetric_key_b64: string;
-    rsa_public_pem: string;
-    rsa_private_pem: string;
-    x25519_public_b64: string;
-    x25519_secret_b64: string;
-  }) {
-    // 只发送当前算法声明的字段，避免把“旧算法残留字段”误传给后端。
-    // 注意：当前后端 UpsertKeyRequest 仍是固定字段结构，因此这里做“声明驱动的清空/保留”。
+  function buildUpsertPayload(tp: string, label: string, partValues: Record<string, string>) {
+    // 这里严格按“后端算法声明（AlgorithmFormSpec）”生成 parts：
+    // - 避免把不属于当前算法的字段误传给后端；
+    // - 同时让新增算法只改算法文件，不改前端保存逻辑。
     const spec = algorithmSpecsById[tp];
-
-    const out: Record<string, string | null> = {
-      key_type: tp,
-      label: fields.label,
-      symmetric_key_b64: null,
-      rsa_public_pem: null,
-      rsa_private_pem: null,
-      x25519_public_b64: null,
-      x25519_secret_b64: null
-    };
-
-    // 如果 spec 缺失，保守策略：按旧逻辑兜底（避免 UI 因异常无法保存）。
     if (!spec) {
-      if (tp === "AES-256" || tp === "ChaCha20") out.symmetric_key_b64 = fields.symmetric_key_b64;
-      else if (tp === "X25519") {
-        out.x25519_public_b64 = fields.x25519_public_b64;
-        out.x25519_secret_b64 = fields.x25519_secret_b64;
-      } else {
-        out.rsa_public_pem = fields.rsa_public_pem;
-        out.rsa_private_pem = fields.rsa_private_pem;
-      }
-      return out;
+      throw new Error($t("common.loading"));
     }
 
-    // 按声明把字段填入请求。
-    for (const f of spec.key_fields) {
-      if (f.field === "symmetric_key_b64") out.symmetric_key_b64 = fields.symmetric_key_b64;
-      if (f.field === "rsa_public_pem") out.rsa_public_pem = fields.rsa_public_pem;
-      if (f.field === "rsa_private_pem") out.rsa_private_pem = fields.rsa_private_pem;
-      if (f.field === "x25519_public_b64") out.x25519_public_b64 = fields.x25519_public_b64;
-      if (f.field === "x25519_secret_b64") out.x25519_secret_b64 = fields.x25519_secret_b64;
+    const parts: KeyPart[] = [];
+    for (const p of spec.key_parts) {
+      const v = (partValues[p.id] ?? "").trim();
+      if (!v) continue;
+      parts.push({ id: p.id, encoding: p.encoding, value: v });
     }
-    return out;
+
+    return {
+      key_type: tp,
+      label,
+      parts
+    };
   }
 
   async function saveDetail() {
@@ -406,14 +400,7 @@
     await invoke("keystore_update_key", {
       req: {
         id: detail.id,
-        ...buildUpsertPayload(detail.key_type, {
-          label: name,
-          symmetric_key_b64: detail.symmetric_key_b64,
-          rsa_public_pem: detail.rsa_public_pem,
-          rsa_private_pem: detail.rsa_private_pem,
-          x25519_public_b64: detail.x25519_public_b64,
-          x25519_secret_b64: detail.x25519_secret_b64
-        })
+        ...buildUpsertPayload(detail.key_type, name, detail.parts)
       }
     });
 
@@ -585,23 +572,19 @@
       -->
       {#if algorithmSpecsById[importType]}
         {@const importSpec = algorithmSpecsById[importType]}
-        {#each importSpec.key_fields as f (f.field)}
-          <div class="label" style="margin-top: 12px">{$t(f.label_key)}</div>
+        {#each importSpec.key_parts as p (p.id)}
+          <div class="label" style="margin-top: 12px">{$t(p.label_key)}</div>
+          <textarea
+            rows={p.rows}
+            value={importParts[p.id] ?? ""}
+            placeholder={p.placeholder_key ? $t(p.placeholder_key) : ""}
+            oninput={(e) => {
+              importParts[p.id] = (e.target as HTMLTextAreaElement).value;
+            }}
+          ></textarea>
 
-          {#if f.field === "symmetric_key_b64"}
-            <textarea rows={f.rows} bind:value={importSymmetricKeyB64} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
-          {:else if f.field === "rsa_public_pem"}
-            <textarea rows={f.rows} bind:value={importRsaPublicPem} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
-          {:else if f.field === "rsa_private_pem"}
-            <textarea rows={f.rows} bind:value={importRsaPrivatePem} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
-          {:else if f.field === "x25519_public_b64"}
-            <textarea rows={f.rows} bind:value={importX25519PublicB64} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
-          {:else if f.field === "x25519_secret_b64"}
-            <textarea rows={f.rows} bind:value={importX25519SecretB64} placeholder={f.placeholder_key ? $t(f.placeholder_key) : ""}></textarea>
-          {/if}
-
-          {#if f.hint_key}
-            <div class="help" style="margin-top: 8px">{$t(f.hint_key)}</div>
+          {#if p.hint_key}
+            <div class="help" style="margin-top: 8px">{$t(p.hint_key)}</div>
           {/if}
         {/each}
       {:else}
@@ -697,23 +680,21 @@
 
       {#if algorithmSpecsById[detail.key_type]}
           {@const detailSpec = algorithmSpecsById[detail.key_type]}
-          {#each detailSpec.key_fields as f (f.field)}
-            <div class="label" style="margin-top: 12px">{$t(f.label_key)}</div>
+          {#each detailSpec.key_parts as p (p.id)}
+            <div class="label" style="margin-top: 12px">{$t(p.label_key)}</div>
+            <textarea
+              rows={p.rows}
+              value={detail.parts[p.id] ?? ""}
+              placeholder={p.placeholder_key ? $t(p.placeholder_key) : ""}
+              oninput={(e) => {
+                // 防御：这里理论上 detail 一定存在（外层已判断），但 TS 无法在回调里做窄化。
+                if (!detail) return;
+                detail.parts[p.id] = (e.target as HTMLTextAreaElement).value;
+              }}
+            ></textarea>
 
-            {#if f.field === "symmetric_key_b64"}
-              <textarea rows={f.rows} bind:value={detail.symmetric_key_b64}></textarea>
-            {:else if f.field === "rsa_public_pem"}
-              <textarea rows={f.rows} bind:value={detail.rsa_public_pem}></textarea>
-            {:else if f.field === "rsa_private_pem"}
-              <textarea rows={f.rows} bind:value={detail.rsa_private_pem}></textarea>
-            {:else if f.field === "x25519_public_b64"}
-              <textarea rows={f.rows} bind:value={detail.x25519_public_b64}></textarea>
-            {:else if f.field === "x25519_secret_b64"}
-              <textarea rows={f.rows} bind:value={detail.x25519_secret_b64}></textarea>
-            {/if}
-
-            {#if f.hint_key}
-              <div class="help" style="margin-top: 8px">{$t(f.hint_key)}</div>
+            {#if p.hint_key}
+              <div class="help" style="margin-top: 8px">{$t(p.hint_key)}</div>
             {/if}
           {/each}
         {:else}

@@ -35,21 +35,18 @@ pub enum AlgorithmCategory {
     Asymmetric,
 }
 
-/// 算法需要的“密钥输入字段”声明：用于前端按声明动态生成输入表单。
+/// 算法需要的“密钥零件（parts）”声明：用于前端按声明动态生成输入表单。
 ///
 /// 说明：
-/// - 当前 KeyStore 的 API（UpsertKeyRequest / KeyDetail）仍是“固定字段结构”，
-///   因此这里的 field 也限定为既有字段名：
-///   - symmetric_key_b64
-///   - rsa_public_pem / rsa_private_pem
-///   - x25519_public_b64 / x25519_secret_b64
-/// - 未来如果要支持“任意算法任意字段”，需要同时升级 KeyStore 的数据模型与 API；
-///   但本次目标是：先把 UI 的“按算法写死 if/else”消除，改为按声明渲染。
+/// - KeyStore 已升级为通用 parts 结构（见 keystore.rs），因此这里不再受“固定字段结构体”限制；
+/// - 仍然约定：同一个算法在整个产品里使用稳定的 part id（你已确认“命名保持不变”）。
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
-pub struct KeyFieldSpec {
-    /// 对应前端/后端请求中的字段名（固定集合）。
-    pub field: &'static str,
+pub struct KeyPartSpec {
+    /// part id：用于前端表单绑定与后端存储（例如 rsa_public_pem）。
+    pub id: &'static str,
+    /// part 的编码类型：用于前端提示与后端解析（base64/pem/hex/utf8）。
+    pub encoding: keystore::KeyPartEncoding,
     /// i18n 翻译 key：用于 label，例如 "keys.ui.preview.publicPem"。
     pub label_key: &'static str,
     /// i18n 翻译 key：用于 placeholder（可选）。
@@ -58,6 +55,10 @@ pub struct KeyFieldSpec {
     pub rows: u8,
     /// i18n 翻译 key：用于字段下方提示（可选）。
     pub hint_key: Option<&'static str>,
+    /// 是否为“加密所必需”的 part：前端据此判断“该密钥能否用于加密”。
+    pub required_for_encrypt: bool,
+    /// 是否为“解密所必需”的 part：前端据此判断“该密钥能否用于解密”。
+    pub required_for_decrypt: bool,
 }
 
 /// 单个算法“需要哪些密钥材料”的声明。
@@ -76,8 +77,14 @@ pub struct AlgorithmSpec {
     pub encrypt_needs: &'static str,
     /// 解密所需的密钥材料说明（给 UI/业务做预判用）。
     pub decrypt_needs: &'static str,
-    /// 密钥输入字段声明：用于“按声明动态生成输入表单”。
-    pub key_fields: &'static [KeyFieldSpec],
+    /// 密钥零件声明：用于“按声明动态生成输入表单”。
+    pub key_parts: &'static [KeyPartSpec],
+    /// 将前端提交的 parts 做“算法级规范化/校验”，并返回可落盘的 parts。
+    ///
+    /// 为什么要放在算法文件里：
+    /// - commands.rs 不应为每个算法写 if/else 校验；
+    /// - 新增算法时，只需要新增一个算法文件并注册到 all_specs，即可获得完整的“导入/编辑/保存”能力。
+    pub normalize_parts: fn(Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPart>, String>,
 }
 
 /// 返回所有算法的 spec（单一来源）。
