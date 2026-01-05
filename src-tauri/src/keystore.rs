@@ -122,8 +122,6 @@ pub struct KeyStoreStatus {
 #[derive(Debug)]
 pub enum KeyStoreError {
     NotFound,
-    UnsupportedFormat(String),
-    VersionMismatch { supported: u32, file: u32 },
     Io(std::io::Error),
     Json(serde_json::Error),
 }
@@ -132,11 +130,6 @@ impl std::fmt::Display for KeyStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             KeyStoreError::NotFound => write!(f, "密钥库不存在"),
-            KeyStoreError::UnsupportedFormat(msg) => write!(f, "{msg}"),
-            KeyStoreError::VersionMismatch { supported, file } => write!(
-                f,
-                "密钥库版本不兼容：当前支持版本为 {supported}，文件版本为 {file}"
-            ),
             KeyStoreError::Io(e) => write!(f, "文件读写错误：{e}"),
             KeyStoreError::Json(e) => write!(f, "JSON 解析错误：{e}"),
         }
@@ -192,9 +185,7 @@ pub fn ensure_exists(app: &AppHandle) -> Result<(), KeyStoreError> {
 
 /// 读取密钥库明文。
 ///
-/// 说明：
-/// - 本项目已移除“应用锁/密钥库加密”，因此这里只允许 `format=plain`；
-/// - 如果检测到旧版加密密钥库（format=encrypted），会返回明确错误提示用户删除重建。
+/// 说明：开发阶段不做向后兼容，直接按当前结构读取。
 pub fn read_plain(app: &AppHandle) -> Result<KeyStorePlain, KeyStoreError> {
     let path = keystore_path(app)?;
     if !path.exists() {
@@ -202,30 +193,10 @@ pub fn read_plain(app: &AppHandle) -> Result<KeyStorePlain, KeyStoreError> {
     }
 
     let bytes = fs::read(path)?;
-
-    // 先用 Value 做一次轻量探测，给用户更明确的提示信息（避免直接抛 serde 的“未知枚举值”）。
-    let v: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let format = v.get("format").and_then(|x| x.as_str()).unwrap_or("");
-    if format == "encrypted" {
-        return Err(KeyStoreError::UnsupportedFormat(
-            "当前版本已移除“应用锁/密钥库加密”功能，无法读取加密密钥库文件；请删除 AppData 下的 keystore.json 后重新创建/导入密钥。"
-                .to_string(),
-        ));
+    let file: KeyStoreFile = serde_json::from_slice(&bytes)?;
+    match file {
+        KeyStoreFile::Plain { data, .. } => Ok(data),
     }
-
-    let file: KeyStoreFile = serde_json::from_value(v)?;
-    let plain = match file {
-        KeyStoreFile::Plain { data, .. } => data,
-    };
-
-    if plain.version != KEYSTORE_VERSION {
-        return Err(KeyStoreError::VersionMismatch {
-            supported: KEYSTORE_VERSION,
-            file: plain.version,
-        });
-    }
-
-    Ok(plain)
 }
 
 /// 获取密钥库状态（不包含敏感材料）。
