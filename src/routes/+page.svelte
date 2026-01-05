@@ -1,6 +1,6 @@
 <!--
   密钥管理（单一 keystore）：
-  - 顶部一排按钮：生成密钥 / 导入密钥 / 加密密钥（应用锁）
+  - 顶部一排按钮：生成密钥 / 导入密钥
   - 下方全宽密钥列表：点击任意一行打开“密钥详情”，可编辑/复制
   - 说明：敏感材料始终在后端读取与处理；前端只做展示、输入收集与复制操作
 -->
@@ -14,8 +14,6 @@
 
   type KeyStoreStatus = {
     exists: boolean;
-    encrypted: boolean;
-    unlocked: boolean;
     version: number;
     key_count: number | null;
   };
@@ -92,17 +90,12 @@
   // Dialog state
   let showGenerate = $state(false);
   let showImport = $state(false);
-  let showLock = $state(false);
   let showDetail = $state(false);
 
   // 统一处理“关闭弹窗”，用于键盘 ESC。
   function closeTopModal() {
     if (showDetail) {
       showDetail = false;
-      return;
-    }
-    if (showLock) {
-      showLock = false;
       return;
     }
     if (showImport) {
@@ -133,10 +126,6 @@
     importParts = {};
   });
 
-  // Lock (encrypt keystore)
-  let lockPassword = $state("");
-  let lockPassword2 = $state("");
-
   // Detail（点击密钥行打开）
   let detail = $state<KeyDetail | null>(null);
 
@@ -147,7 +136,7 @@
 
   // 键盘快捷键：当任意弹窗开启时，按 ESC 关闭。
   $effect(() => {
-    const anyOpen = showGenerate || showImport || showLock || showDetail;
+    const anyOpen = showGenerate || showImport || showDetail;
     if (!anyOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -201,43 +190,6 @@
     } catch {
       entries = [];
     }
-  }
-
-  function openLockDialog() {
-    lockPassword = "";
-    lockPassword2 = "";
-    showLock = true;
-  }
-
-  async function applyLock() {
-    message = "";
-
-    const pw = lockPassword.trim();
-    const pw2 = lockPassword2.trim();
-
-    if (!pw) {
-      message = $t("keys.ui.errors.passwordRequired");
-      return;
-    }
-
-    if (pw !== pw2) {
-      message = $t("keys.ui.errors.passwordMismatch");
-      return;
-    }
-
-    await invoke("keystore_set_lock", { newPassword: pw });
-
-    showLock = false;
-    await refresh();
-    notifyKeystoreChanged();
-  }
-
-  async function removeLock() {
-    message = "";
-    await invoke("keystore_set_lock", { newPassword: null });
-    showLock = false;
-    await refresh();
-    notifyKeystoreChanged();
   }
 
   async function doGenerate() {
@@ -457,11 +409,6 @@
     message = "";
     showImport = true;
   }}>{$t("keys.ui.importTitle")}</button>
-
-  <button onclick={() => {
-    message = "";
-    openLockDialog();
-  }}>{status?.encrypted ? $t("keys.ui.disableLock") : $t("keys.ui.enableLock")}</button>
 </div>
 
 <div class="divider" style="margin: 14px 0"></div>
@@ -602,49 +549,6 @@
         }}>{$t("common.ok")}</button>
         <button onclick={() => (showImport = false)}>{$t("common.cancel")}</button>
       </div>
-    </div>
-  </div>
-{/if}
-
-{#if showLock}
-  <div class="modal" role="presentation">
-    <div class="modal-inner" role="dialog" tabindex="-1" aria-modal="true" aria-label={$t("keys.ui.lockTitle")}>
-      <div class="modal-title">{$t("keys.ui.lockTitle")}</div>
-
-      {#if status?.encrypted}
-        <p class="help">{$t("keys.ui.disableHint")}</p>
-        <div class="toolbar" style="margin-top: 12px">
-          <button class="primary" onclick={async () => {
-            try {
-              await removeLock();
-            } catch (e) {
-              message = formatError(e);
-            }
-          }}>{$t("keys.ui.disableLock")}</button>
-          <button onclick={() => (showLock = false)}>{$t("common.cancel")}</button>
-        </div>
-      {:else}
-        <div class="grid2" style="margin-top: 10px">
-          <div>
-            <div class="label">{$t("keys.ui.newPassword")}</div>
-            <input type="password" bind:value={lockPassword} />
-          </div>
-          <div>
-            <div class="label">{$t("keys.ui.confirmPassword")}</div>
-            <input type="password" bind:value={lockPassword2} />
-          </div>
-        </div>
-        <div class="toolbar" style="margin-top: 12px">
-          <button class="primary" onclick={async () => {
-            try {
-              await applyLock();
-            } catch (e) {
-              message = formatError(e);
-            }
-          }}>{$t("keys.ui.enableLock")}</button>
-          <button onclick={() => (showLock = false)}>{$t("common.cancel")}</button>
-        </div>
-      {/if}
     </div>
   </div>
 {/if}

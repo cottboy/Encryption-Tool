@@ -38,48 +38,8 @@
   },
   "keys": {
     "title": "Key Management",
-    "create": {
-      "title": "Create Keystore",
-      "name": "Name",
-      "password": "Password (optional)",
-      "help": "Leave empty to create a plaintext keystore."
-    },
-    "manage": {
-      "select": "Select keystore",
-      "emptyOption": "(No keystore)",
-      "oldPassword": "Old password (if encrypted)",
-      "newPassword": "New password (empty to remove)",
-      "help": "Changing password re-encrypts/decrypts the whole keystore file.",
-      "title": "Key Management"
-    },
-    "info": {
-      "title": "Keystore Info",
-      "encrypted": "Encrypted",
-      "notEncrypted": "Not encrypted",
-      "version": "Version",
-      "keyCount": "Key count"
-    },
-    "entries": {
-      "title": "Key Entries (preview)",
-      "passwordHelp": "If the keystore is encrypted, enter the password here to load entries.",
-      "load": "Load entries",
-      "empty": "No keys in this keystore yet.",
-      "table": {
-        "id": "ID",
-        "label": "Label",
-        "type": "Type"
-      }
-    },
-    "msg": {
-      "created": "Keystore created: {name}",
-      "passwordUpdated": "Keystore password setting updated"
-    },
     "ui": {
-      "lockNow": "Lock Now",
       "keyListTitle": "Keys",
-      "lockTitle": "Keystore Encryption",
-      "enableLock": "Encrypt Keystore",
-      "disableLock": "Remove Encryption",
       "detailTitle": "Key Details",
       "actions": {
         "preview": "Preview key",
@@ -89,10 +49,6 @@
       "status": "Status",
       "keyCount": "Key count",
       "version": "Version",
-      "newPassword": "New password",
-      "confirmPassword": "Confirm password",
-      "enableHint": "When enabled, the app requires a password on next launch.",
-      "disableHint": "Lock is enabled. Removing it will skip password on next launch.",
       "opsTitle": "Key Operations",
       "generateTitle": "Generate",
       "importTitle": "Import",
@@ -135,8 +91,6 @@
         "actions": "Actions"
       },
       "errors": {
-        "passwordMismatch": "Passwords do not match",
-        "passwordRequired": "Please enter a password",
         "nameRequired": "Please enter a key name"
       },
       "msg": {
@@ -170,7 +124,6 @@
         "rsaHybrid": "Text is long; hybrid encryption is used automatically."
       },
       "errors": {
-        "locked": "App is locked. Unlock it first.",
         "selectAlgorithm": "Please select an algorithm",
         "selectKey": "Please select a key",
         "inputRequired": "Please enter text",
@@ -191,7 +144,6 @@
         "outputDir": "Leave empty to use the input file's directory"
       },
       "errors": {
-        "locked": "App is locked. Unlock it first.",
         "selectAlgorithm": "Please select an algorithm",
         "selectKey": "Please select a key",
         "selectFile": "Please select a file",
@@ -215,11 +167,5 @@
         "detail": "{stage}: {percent}% ({processed} / {total})"
       }
     }
-  },
-  "lock": {
-    "title": "App Locked",
-    "subtitle": "Keystore encryption is enabled. Enter the password to unlock.",
-    "passwordPlaceholder": "Enter password",
-    "unlock": "Unlock"
   }
 }

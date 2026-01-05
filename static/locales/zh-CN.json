@@ -38,48 +38,8 @@
   },
   "keys": {
     "title": "密钥管理",
-    "create": {
-      "title": "创建密钥库",
-      "name": "名称",
-      "password": "密码（可选）",
-      "help": "不填写密码将创建明文密钥库。"
-    },
-    "manage": {
-      "select": "选择密钥库",
-      "emptyOption": "（暂无密钥库）",
-      "oldPassword": "旧密码（若已加密）",
-      "newPassword": "新密码（留空表示移除密码）",
-      "help": "修改密码会重新加密/解密整个密钥库文件。",
-      "title": "密钥管理"
-    },
-    "info": {
-      "title": "密钥库信息",
-      "encrypted": "已加密",
-      "notEncrypted": "未加密",
-      "version": "版本",
-      "keyCount": "密钥数量"
-    },
-    "entries": {
-      "title": "密钥条目（预览）",
-      "passwordHelp": "如果密钥库已加密，请在这里填写密码以读取条目列表。",
-      "load": "读取条目",
-      "empty": "当前密钥库还没有任何密钥。",
-      "table": {
-        "id": "ID",
-        "label": "名称",
-        "type": "类型"
-      }
-    },
-    "msg": {
-      "created": "已创建密钥库：{name}",
-      "passwordUpdated": "已更新密钥库密码设置"
-    },
     "ui": {
-      "lockNow": "立即锁定",
       "keyListTitle": "密钥列表",
-      "lockTitle": "密钥库加密",
-      "enableLock": "加密密钥库",
-      "disableLock": "取消加密",
       "detailTitle": "密钥详情",
       "actions": {
         "preview": "预览密钥",
@@ -89,10 +49,6 @@
       "status": "状态",
       "keyCount": "密钥数量",
       "version": "版本",
-      "newPassword": "新密码",
-      "confirmPassword": "确认新密码",
-      "enableHint": "启用后，下次启动必须输入密码才能使用软件。",
-      "disableHint": "已启用应用锁。移除后，下次启动将不再需要密码。",
       "opsTitle": "密钥操作",
       "generateTitle": "生成密钥",
       "importTitle": "导入密钥",
@@ -135,8 +91,6 @@
         "actions": "操作"
       },
       "errors": {
-        "passwordMismatch": "两次输入的密码不一致",
-        "passwordRequired": "请输入密码",
         "nameRequired": "请输入密钥名称"
       },
       "msg": {
@@ -170,7 +124,6 @@
         "rsaHybrid": "文本较长，已自动使用混合加密。"
       },
       "errors": {
-        "locked": "应用已锁定：请先在锁屏层输入密码解锁",
         "selectAlgorithm": "请选择算法",
         "selectKey": "请选择密钥",
         "inputRequired": "请输入要处理的文本",
@@ -191,7 +144,6 @@
         "outputDir": "不选择则默认与输入文件同目录"
       },
       "errors": {
-        "locked": "应用已锁定：请先在锁屏层输入密码解锁",
         "selectAlgorithm": "请选择算法",
         "selectKey": "请选择密钥",
         "selectFile": "请选择文件",
@@ -215,11 +167,5 @@
         "detail": "{stage}：{percent}%（{processed} / {total}）"
       }
     }
-  },
-  "lock": {
-    "title": "应用已锁定",
-    "subtitle": "已启用密钥库加密。请输入密码解锁后才能使用。",
-    "passwordPlaceholder": "请输入密码",
-    "unlock": "解锁"
   }
 }

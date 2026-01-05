@@ -2,14 +2,11 @@
   应用主布局：
   - 顶部提供“三标签页”导航（密钥管理 / 文本加密 / 文件加密）。
   - 风格要求：简约、扁平化，不使用卡片堆叠与浓重阴影。
-  - 增加“应用锁（密钥库加密）”的锁屏层：启用后启动必须先解锁。
+  - 说明：本项目已移除“应用锁/密钥库加密”，因此不再需要锁屏层。
 -->
 
 <script lang="ts">
   import "../app.css";
-
-  import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
 
   import { locale, setLocale, supportedLocales, t, type SupportedLocale } from "$lib/i18n";
   import { page } from "$app/stores";
@@ -36,70 +33,6 @@
     const value = (e.target as HTMLSelectElement).value as SupportedLocale;
     await setLocale(value);
   }
-
-  // =====================
-  // 应用锁（锁屏层）
-  // =====================
-
-  type KeyStoreStatus = {
-    exists: boolean;
-    encrypted: boolean;
-    unlocked: boolean;
-    version: number;
-    key_count: number | null;
-  };
-
-  // 当前锁状态。
-  let status = $state<KeyStoreStatus | null>(null);
-
-  // 解锁输入框（只在锁屏层显示）。
-  let unlockPassword = $state("");
-
-  // 锁屏层错误提示。
-  let lockError = $state<string>("");
-
-  async function refreshStatus() {
-    status = await invoke<KeyStoreStatus>("keystore_status");
-  }
-
-  async function unlock() {
-    lockError = "";
-    await invoke("keystore_unlock", { password: unlockPassword });
-    unlockPassword = "";
-    await refreshStatus();
-
-    // 解锁成功后通知页面刷新（例如密钥列表重载）。
-    window.dispatchEvent(new CustomEvent("keystore_status_changed"));
-  }
-
-  onMount(() => {
-    // 启动时刷新一次状态。
-    refreshStatus().catch(() => {
-      // 忽略：失败时不阻塞 UI。
-    });
-
-    // 监听子页面发出的“密钥库状态变更”事件。
-    const handler = () => {
-      refreshStatus().catch(() => {
-        // 忽略：失败时不阻塞 UI。
-      });
-    };
-
-    window.addEventListener("keystore_status_changed", handler);
-
-    return () => {
-      window.removeEventListener("keystore_status_changed", handler);
-    };
-  });
-
-  // 当密钥库加密且未解锁时：认为应用处于“锁屏”。
-  $effect(() => {
-    if (!status) return;
-    if (!status.encrypted) {
-      lockError = "";
-      unlockPassword = "";
-    }
-  });
 </script>
 
 <div class="app">
@@ -121,7 +54,6 @@
           <a
             class="tab {isActive($page.url.pathname, tab.path) ? 'active' : ''}"
             href={tab.path}
-            aria-disabled={status?.encrypted && !status?.unlocked}
           >
             {$t(tab.labelKey)}
           </a>
@@ -143,51 +75,6 @@
       {@render children()}
     </div>
   </main>
-
-  {#if status?.encrypted && !status?.unlocked}
-    <!--
-      锁屏层：
-      - 覆盖整个应用内容。
-      - 不使用“卡片堆叠”，只用留白 + 细边框。
-    -->
-    <div class="lock" aria-label="应用已锁定">
-      <div class="lock-inner">
-        <div class="lock-title">{$t("lock.title")}</div>
-        <div class="help">{$t("lock.subtitle")}</div>
-
-        <div class="lock-row">
-          <input
-            type="password"
-            bind:value={unlockPassword}
-            placeholder={$t("lock.passwordPlaceholder")}
-            onkeydown={(e) => {
-              if (e.key === "Enter") {
-                unlock().catch((err) => {
-                  lockError = typeof err === "string" ? err : String(err);
-                });
-              }
-            }}
-          />
-          <button
-            class="primary"
-            onclick={async () => {
-              try {
-                await unlock();
-              } catch (e) {
-                lockError = typeof e === "string" ? e : String(e);
-              }
-            }}
-          >
-            {$t("lock.unlock")}
-          </button>
-        </div>
-
-        {#if lockError}
-          <div class="help" style="color: #b42318">{lockError}</div>
-        {/if}
-      </div>
-    </div>
-  {/if}
 </div>
 
 <style>
@@ -282,11 +169,6 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.70);
   }
 
-  .tab[aria-disabled="true"] {
-    pointer-events: none;
-    opacity: 0.55;
-  }
-
   .locale select {
     font-size: 12px;
     /*
@@ -321,40 +203,4 @@
     overflow-x: hidden;
   }
 
-  /* 锁屏层 */
-  .lock {
-    position: fixed;
-    inset: 0;
-    background: rgba(245, 245, 247, 0.92);
-    backdrop-filter: blur(10px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-
-  .lock-inner {
-    width: 100%;
-    max-width: 520px;
-    padding: 18px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: rgba(255, 255, 255, 0.75);
-  }
-
-  .lock-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 6px;
-  }
-
-  .lock-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 12px;
-  }
-
-  .lock-row input {
-    flex: 1;
-  }
 </style>

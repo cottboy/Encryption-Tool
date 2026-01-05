@@ -7,7 +7,7 @@
   本阶段命令重点：
   - 单一密钥库（一个 keystore.json）
   - 支持密钥生成/导入/导出：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
-  - 支持应用锁（密钥库加密）：启用后启动必须解锁
+  - 说明：本项目已移除“应用锁/密钥库加密”，密钥库仅以明文 JSON 存储
 */
 
 use std::fs;
@@ -24,7 +24,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     file_crypto, keystore,
-    state::{AppState, FileCryptoTaskControl, UnlockedKeystore},
+    state::{AppState, FileCryptoTaskControl},
     text_crypto,
 };
 
@@ -139,7 +139,7 @@ pub fn get_supported_algorithms() -> SupportedAlgorithms {
 }
 
 // =====================
-// 应用锁 / 密钥库（KeyStore）
+// 密钥库（KeyStore）
 // =====================
 
 /// 给前端展示的密钥条目（不包含敏感材料）。
@@ -166,123 +166,9 @@ pub struct KeyEntryPublic {
 #[tauri::command]
 pub fn keystore_status(
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<keystore::KeyStoreStatus, String> {
     keystore::ensure_exists(&app).map_err(|e| e.to_string())?;
-
-    // 只有在“密钥库已加密”的情况下，unlocked 才有意义；
-    // 这里用 state 中是否存在 Encrypted 会话来判断。
-    let unlocked = {
-        let guard = state
-            .unlocked_keystore
-            .lock()
-            .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-
-        matches!(&*guard, Some(UnlockedKeystore::Encrypted { .. }))
-    };
-
-    keystore::status(&app, unlocked).map_err(|e| e.to_string())
-}
-
-/// 解锁密钥库：
-/// - 若为明文库：直接读取并缓存 Plain 会话。
-/// - 若为加密库：解密并缓存 Encrypted 会话（含派生密钥）。
-#[tauri::command]
-pub fn keystore_unlock(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    password: String,
-) -> Result<(), String> {
-    keystore::ensure_exists(&app).map_err(|e| e.to_string())?;
-
-    let (plain, derived) = keystore::decrypt_with_password_and_derived_key(&app, password.trim())
-        .map_err(|e| e.to_string())?;
-
-    let mut guard = state
-        .unlocked_keystore
-        .lock()
-        .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-
-    *guard = match derived {
-        None => Some(UnlockedKeystore::Plain(plain)),
-        Some((kdf, key)) => Some(UnlockedKeystore::Encrypted {
-            plain,
-            kdf,
-            derived_key: Zeroizing::new(key),
-        }),
-    };
-
-    Ok(())
-}
-
-/// 主动锁定：清空会话缓存。
-#[tauri::command]
-pub fn keystore_lock(state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state
-        .unlocked_keystore
-        .lock()
-        .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-
-    *guard = None;
-    Ok(())
-}
-
-/// 设置/移除应用锁：
-/// - new_password=Some：启用或修改应用锁
-/// - new_password=None：移除应用锁
-#[tauri::command]
-pub fn keystore_set_lock(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    new_password: Option<String>,
-) -> Result<(), String> {
-    keystore::ensure_exists(&app).map_err(|e| e.to_string())?;
-
-    // 先拿到当前密钥库明文：
-    // - 未加密：从文件读取
-    // - 已加密：必须已解锁（从 state 读取）
-    let (plain, current_encrypted_ctx) = load_plain_for_write(&app, &state)?;
-
-    match new_password
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-    {
-        Some(pw) => {
-            // 启用/修改应用锁：用新密码加密并写回。
-            let (file, kdf, key) =
-                keystore::encrypt_with_new_password(&plain, pw).map_err(|e| e.to_string())?;
-            let path = keystore::keystore_path(&app).map_err(|e| e.to_string())?;
-            write_file_atomic(&path, &file).map_err(|e| e.to_string())?;
-
-            // 更新会话：保存派生密钥，便于后续写回。
-            let mut guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            *guard = Some(UnlockedKeystore::Encrypted {
-                plain,
-                kdf,
-                derived_key: Zeroizing::new(key),
-            });
-            Ok(())
-        }
-        None => {
-            // 移除应用锁：写回明文。
-            keystore::write_plain(&app, &plain).map_err(|e| e.to_string())?;
-
-            // 更新会话：改为 Plain。
-            let mut guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            *guard = Some(UnlockedKeystore::Plain(plain));
-
-            // current_encrypted_ctx 用不到，但保持返回签名一致。
-            drop(current_encrypted_ctx);
-            Ok(())
-        }
-    }
+    keystore::status(&app).map_err(|e| e.to_string())
 }
 
 /// 列出密钥条目（不包含敏感材料）。
@@ -291,25 +177,9 @@ pub fn keystore_set_lock(
 #[tauri::command]
 pub fn keystore_list_entries(
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<Vec<KeyEntryPublic>, String> {
     keystore::ensure_exists(&app).map_err(|e| e.to_string())?;
-
-    let file = keystore::read_file(&app).map_err(|e| e.to_string())?;
-
-    let plain = match file {
-        keystore::KeyStoreFile::Plain { data, .. } => data,
-        keystore::KeyStoreFile::Encrypted { .. } => {
-            let guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            match &*guard {
-                Some(UnlockedKeystore::Encrypted { plain, .. }) => plain.clone(),
-                _ => return Err(keystore::KeyStoreError::PasswordRequired.to_string()),
-            }
-        }
-    };
+    let plain = keystore::read_plain(&app).map_err(|e| e.to_string())?;
 
     let entries = plain
         .key_entries
@@ -348,7 +218,6 @@ pub struct GenerateKeyRequest {
 #[tauri::command]
 pub fn keystore_generate_key(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: GenerateKeyRequest,
 ) -> Result<KeyEntryPublic, String> {
     let key_type = req.key_type.trim();
@@ -358,7 +227,7 @@ pub fn keystore_generate_key(
 
     let label = req.label.unwrap_or_default().trim().to_string();
 
-    with_plain_mutation(&app, &state, |plain| {
+    with_plain_mutation(&app, |plain| {
         let id = keystore::generate_entry_id();
 
         let entry_label = if label.is_empty() {
@@ -469,7 +338,6 @@ pub struct ImportKeyRequest {
 #[tauri::command]
 pub fn keystore_import_key(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: ImportKeyRequest,
 ) -> Result<KeyEntryPublic, String> {
     let key_type = req.key_type.trim();
@@ -487,7 +355,7 @@ pub fn keystore_import_key(
     let bytes = fs::read(path).map_err(|e| format!("读取文件失败：{e}"))?;
     let text = String::from_utf8_lossy(&bytes).to_string();
 
-    with_plain_mutation(&app, &state, |plain| {
+    with_plain_mutation(&app, |plain| {
         let id = keystore::generate_entry_id();
 
         let entry_label = if label.is_empty() {
@@ -614,7 +482,6 @@ pub struct ExportKeyRequest {
 #[tauri::command]
 pub fn keystore_export_key(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: ExportKeyRequest,
 ) -> Result<(), String> {
     let id = req.id.trim();
@@ -627,7 +494,7 @@ pub fn keystore_export_key(
     }
 
     // 读取密钥库明文（导出不修改，因此这里用只读即可）。
-    let plain = load_plain_for_read(&app, &state)?;
+    let plain = load_plain_for_read(&app)?;
 
     let entry = keystore::find_entry(&plain, id).ok_or_else(|| "未找到指定的密钥".to_string())?;
 
@@ -676,7 +543,6 @@ pub struct DeleteKeyRequest {
 #[tauri::command]
 pub fn keystore_delete_key(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: DeleteKeyRequest,
 ) -> Result<(), String> {
     let id = req.id.trim();
@@ -684,7 +550,7 @@ pub fn keystore_delete_key(
         return Err("id 不能为空".to_string());
     }
 
-    with_plain_mutation(&app, &state, |plain| {
+    with_plain_mutation(&app, |plain| {
         let removed = keystore::delete_entry(plain, id);
         if !removed {
             return Err("未找到指定的密钥".to_string());
@@ -694,142 +560,29 @@ pub fn keystore_delete_key(
 }
 
 // =====================
-// 内部辅助：读取/写入与加密写回
+// 内部辅助：读取/写入（明文密钥库）
 // =====================
 
 /// 只读获取密钥库明文：
-/// - 未加密：从文件读取
-/// - 已加密：必须已解锁（从 state 读取）
-fn load_plain_for_read(
-    app: &AppHandle,
-    state: &State<'_, AppState>,
-) -> Result<keystore::KeyStorePlain, String> {
-    let file = keystore::read_file(app).map_err(|e| e.to_string())?;
-    match file {
-        keystore::KeyStoreFile::Plain { data, .. } => {
-            let guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            match &*guard {
-                Some(UnlockedKeystore::Plain(p)) => Ok(p.clone()),
-                _ => Ok(data),
-            }
-        }
-        keystore::KeyStoreFile::Encrypted { .. } => {
-            let guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            match &*guard {
-                Some(UnlockedKeystore::Encrypted { plain, .. }) => Ok(plain.clone()),
-                _ => Err(keystore::KeyStoreError::PasswordRequired.to_string()),
-            }
-        }
-    }
-}
-
-/// 写操作获取明文与加密上下文：
-/// - 返回 (plain, Option<(kdf, derived_key)>)
-fn load_plain_for_write(
-    app: &AppHandle,
-    state: &State<'_, AppState>,
-) -> Result<
-    (
-        keystore::KeyStorePlain,
-        Option<(keystore::KdfParams, Zeroizing<[u8; 32]>)>,
-    ),
-    String,
-> {
-    let file = keystore::read_file(app).map_err(|e| e.to_string())?;
-
-    match file {
-        keystore::KeyStoreFile::Plain { data, .. } => {
-            let guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            match &*guard {
-                Some(UnlockedKeystore::Plain(p)) => Ok((p.clone(), None)),
-                _ => Ok((data, None)),
-            }
-        }
-        keystore::KeyStoreFile::Encrypted { .. } => {
-            let guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            match &*guard {
-                Some(UnlockedKeystore::Encrypted {
-                    plain,
-                    kdf,
-                    derived_key,
-                }) => Ok((plain.clone(), Some((kdf.clone(), derived_key.clone())))),
-                _ => Err(keystore::KeyStoreError::PasswordRequired.to_string()),
-            }
-        }
-    }
+/// - 本项目已移除“应用锁/密钥库加密”，因此这里直接从磁盘读取明文结构。
+fn load_plain_for_read(app: &AppHandle) -> Result<keystore::KeyStorePlain, String> {
+    keystore::ensure_exists(app).map_err(|e| e.to_string())?;
+    keystore::read_plain(app).map_err(|e| e.to_string())
 }
 
 /// 对密钥库明文进行一次“可持久化的修改”：
-/// - 会根据当前密钥库是否加密，写回明文或加密文件
-/// - 若为加密库，会同时更新 state 中缓存的明文
+/// - 修改后会写回到磁盘（明文 JSON）。
 fn with_plain_mutation<T>(
     app: &AppHandle,
-    state: &State<'_, AppState>,
     f: impl FnOnce(&mut keystore::KeyStorePlain) -> Result<T, String>,
 ) -> Result<T, String> {
     keystore::ensure_exists(app).map_err(|e| e.to_string())?;
 
-    let (mut plain, ctx) = load_plain_for_write(app, state)?;
+    let mut plain = keystore::read_plain(app).map_err(|e| e.to_string())?;
     let out = f(&mut plain)?;
 
-    match ctx {
-        None => {
-            keystore::write_plain(app, &plain).map_err(|e| e.to_string())?;
-
-            // 明文库也缓存一份：
-            // - 目的：减少重复读文件
-            // - 同时可消除“Plain variant 未使用”的告警
-            let mut guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-            *guard = Some(UnlockedKeystore::Plain(plain.clone()));
-        }
-        Some((kdf, derived_key)) => {
-            keystore::write_encrypted(app, &plain, &kdf, &derived_key)
-                .map_err(|e| e.to_string())?;
-
-            // 写回成功后，更新 state 中的明文缓存。
-            let mut guard = state
-                .unlocked_keystore
-                .lock()
-                .map_err(|_| "内部错误：状态锁被占用".to_string())?;
-
-            if let Some(UnlockedKeystore::Encrypted { plain: p, .. }) = &mut *guard {
-                *p = plain.clone();
-            }
-        }
-    }
-
+    keystore::write_plain(app, &plain).map_err(|e| e.to_string())?;
     Ok(out)
-}
-
-/// 原子写入：用于写入加密库文件（KeyStoreFile）。
-fn write_file_atomic(
-    path: &std::path::Path,
-    file: &keystore::KeyStoreFile,
-) -> Result<(), keystore::KeyStoreError> {
-    // 复用 keystore 内部的序列化与原子写策略：这里简单实现一份，避免暴露内部函数。
-    let tmp = path.with_extension("json.tmp");
-    let data = serde_json::to_vec_pretty(file)?;
-    fs::write(&tmp, data)?;
-    if path.exists() {
-        fs::remove_file(path)?;
-    }
-    fs::rename(&tmp, path)?;
-    Ok(())
 }
 
 /// 密钥预览：用于展示/复制敏感材料。
@@ -852,7 +605,6 @@ pub struct GetKeyPreviewRequest {
 #[tauri::command]
 pub fn keystore_get_key_preview(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: GetKeyPreviewRequest,
 ) -> Result<KeyPreview, String> {
     let id = req.id.trim();
@@ -860,7 +612,7 @@ pub fn keystore_get_key_preview(
         return Err("id 不能为空".to_string());
     }
 
-    let plain = load_plain_for_read(&app, &state)?;
+    let plain = load_plain_for_read(&app)?;
     let entry = keystore::find_entry(&plain, id).ok_or_else(|| "未找到该密钥".to_string())?;
 
     Ok(KeyPreview {
@@ -894,7 +646,6 @@ pub struct GetKeyDetailRequest {
 #[tauri::command]
 pub fn keystore_get_key_detail(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: GetKeyDetailRequest,
 ) -> Result<KeyDetail, String> {
     let id = req.id.trim();
@@ -902,7 +653,7 @@ pub fn keystore_get_key_detail(
         return Err("id 不能为空".to_string());
     }
 
-    let plain = load_plain_for_read(&app, &state)?;
+    let plain = load_plain_for_read(&app)?;
     let entry = keystore::find_entry(&plain, id).ok_or_else(|| "未找到该密钥".to_string())?;
 
     Ok(KeyDetail {
@@ -953,7 +704,6 @@ fn normalize_parts_for_upsert(
 #[tauri::command]
 pub fn keystore_import_key_manual(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: UpsertKeyRequest,
 ) -> Result<KeyEntryPublic, String> {
     let label = req.label.trim();
@@ -966,7 +716,7 @@ pub fn keystore_import_key_manual(
     }
     let parts = normalize_parts_for_upsert(key_type, req.parts)?;
 
-    with_plain_mutation(&app, &state, |plain| {
+    with_plain_mutation(&app, |plain| {
         let id = keystore::generate_entry_id();
 
         plain.key_entries.push(keystore::KeyEntry {
@@ -995,7 +745,6 @@ pub struct UpdateKeyRequest {
 #[tauri::command]
 pub fn keystore_update_key(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: UpdateKeyRequest,
 ) -> Result<KeyEntryPublic, String> {
     let id = req.id.trim();
@@ -1012,7 +761,7 @@ pub fn keystore_update_key(
     }
     let parts = normalize_parts_for_upsert(key_type, req.data.parts)?;
 
-    with_plain_mutation(&app, &state, |plain| {
+    with_plain_mutation(&app, |plain| {
         let entry = plain
             .key_entries
             .iter_mut()
@@ -1062,11 +811,10 @@ pub struct TextDecryptRequest {
 #[tauri::command]
 pub fn text_encrypt(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: TextEncryptRequest,
 ) -> Result<text_crypto::TextEncryptResponse, String> {
-    // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
-    let plain = load_plain_for_read(&app, &state)?;
+    // 读取密钥库明文：用于解析用户所选的 key_id 对应材料。
+    let plain = load_plain_for_read(&app)?;
 
     // 调用专用模块执行加密：避免 commands.rs 继续膨胀。
     text_crypto::encrypt_text(&plain, &req.algorithm, &req.key_id, &req.plaintext)
@@ -1076,11 +824,10 @@ pub fn text_encrypt(
 #[tauri::command]
 pub fn text_decrypt(
     app: AppHandle,
-    state: State<'_, AppState>,
     req: TextDecryptRequest,
 ) -> Result<text_crypto::TextDecryptResponse, String> {
-    // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
-    let plain = load_plain_for_read(&app, &state)?;
+    // 读取密钥库明文：用于解析用户所选的 key_id 对应材料。
+    let plain = load_plain_for_read(&app)?;
 
     // 调用专用模块执行解密：内部已做错误收敛处理。
     text_crypto::decrypt_text(&plain, &req.algorithm, &req.key_id, &req.ciphertext)
@@ -1346,7 +1093,7 @@ pub fn file_encrypt_start(
     req: FileEncryptRequest,
 ) -> Result<FileCryptoStartResponse, String> {
     // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
-    let plain = load_plain_for_read(&app, &state)?;
+    let plain = load_plain_for_read(&app)?;
 
     let algo = req.algorithm.trim();
     if algo.is_empty() {
@@ -1470,7 +1217,7 @@ pub fn file_decrypt_start(
     req: FileDecryptRequest,
 ) -> Result<FileCryptoStartResponse, String> {
     // 读取密钥库明文：若密钥库已加密但未解锁，这里会返回“需要输入密码解锁”。
-    let plain = load_plain_for_read(&app, &state)?;
+    let plain = load_plain_for_read(&app)?;
 
     // 注意：后续要把算法传入后台线程，因此这里先转成 owned String，避免引用跨线程导致生命周期问题。
     let algo = req.algorithm.trim().to_string();

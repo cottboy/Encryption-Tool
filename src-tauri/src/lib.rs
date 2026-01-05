@@ -16,7 +16,7 @@ use state::AppState;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // 管理应用状态：保存“本次运行是否已解锁密钥库”，以及加密库写回所需的会话信息。
+        // 管理应用状态：保存文件加密/解密任务的运行中状态（用于进度与取消）。
         .manage(AppState::default())
         // 插件：
         // - opener：打开外部链接
@@ -30,11 +30,8 @@ pub fn run() {
             commands::get_supported_algorithms,
             // 算法声明（用于 UI 动态表单）
             commands::get_algorithm_form_specs,
-            // 密钥库/应用锁
+            // 密钥库
             commands::keystore_status,
-            commands::keystore_unlock,
-            commands::keystore_lock,
-            commands::keystore_set_lock,
             commands::keystore_list_entries,
             commands::keystore_get_key_preview,
             commands::keystore_get_key_detail,

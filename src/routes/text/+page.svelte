@@ -26,14 +26,6 @@
     asymmetric: string[];
   };
 
-  type KeyStoreStatus = {
-    exists: boolean;
-    encrypted: boolean;
-    unlocked: boolean;
-    version: number;
-    key_count: number | null;
-  };
-
   type KeyEntryPublic = {
     id: string;
     label: string;
@@ -79,9 +71,6 @@
   // 页面状态
   // =====================
 
-  // 密钥库状态：用于判断是否已锁定（锁定时无法列出密钥、也无法加解密）。
-  let status = $state<KeyStoreStatus | null>(null);
-
   // 后端支持的算法列表：用于填充算法下拉框。
   let supportedAlgorithms = $state<string[]>([]);
 
@@ -104,17 +93,9 @@
   // 按钮忙碌态：避免重复点击导致并发请求。
   let busy = $state<boolean>(false);
 
-  function isLocked(): boolean {
-    return !!status?.encrypted && !status?.unlocked;
-  }
-
   // =====================
-  // 初始化：加载算法列表 + 密钥库状态 + 密钥条目
+  // 初始化：加载算法列表 + 密钥条目
   // =====================
-
-  async function refreshStatus() {
-    status = await invoke<KeyStoreStatus>("keystore_status");
-  }
 
   async function refreshAlgorithms() {
     const algos = await invoke<SupportedAlgorithms>("get_supported_algorithms");
@@ -134,7 +115,7 @@
   }
 
   async function refreshEntries() {
-    // 若密钥库已加密但未解锁，后端会返回明确错误；这里交给 message 展示即可。
+    // 密钥列表来自后端：若读取失败，错误会在调用方捕获并展示。
     entries = await invoke<KeyEntryPublic[]>("keystore_list_entries");
   }
 
@@ -227,7 +208,6 @@
     // 页面进入时初始化。
     const init = async () => {
       message = "";
-      await refreshStatus();
       await refreshAlgorithms();
       await refreshFormSpecs();
       await refreshEntries();
@@ -237,14 +217,11 @@
       message = typeof e === "string" ? e : String(e);
     });
 
-    // 监听密钥库状态变更（由 layout 或密钥管理页触发）：
-    // - 例如：解锁/锁定后，需要刷新密钥列表。
+    // 监听密钥库变更（由密钥管理页触发）：例如新增/删除/编辑后需要刷新密钥列表。
     const handler = () => {
-      refreshStatus()
-        .then(() => refreshEntries())
-        .catch((e) => {
-          message = typeof e === "string" ? e : String(e);
-        });
+      refreshEntries().catch((e) => {
+        message = typeof e === "string" ? e : String(e);
+      });
     };
 
     window.addEventListener("keystore_status_changed", handler);
@@ -259,11 +236,6 @@
     if (busy) return;
     message = "";
     outputText = "";
-
-    if (isLocked()) {
-      message = $t("text.ui.errors.locked");
-      return;
-    }
 
     if (!selectedAlgorithm) {
       message = $t("text.ui.errors.selectAlgorithm");
@@ -315,11 +287,6 @@
     if (busy) return;
     message = "";
     outputText = "";
-
-    if (isLocked()) {
-      message = $t("text.ui.errors.locked");
-      return;
-    }
 
     if (!selectedAlgorithm) {
       message = $t("text.ui.errors.selectAlgorithm");
@@ -394,7 +361,7 @@
 <div class="controls" aria-label={$t("text.ui.controls")}>
   <div class="field">
     <div class="label">{$t("common.algorithm")}</div>
-    <select bind:value={selectedAlgorithm} disabled={busy || isLocked()}>
+    <select bind:value={selectedAlgorithm} disabled={busy}>
       {#each supportedAlgorithms as a}
         <option value={a}>{a}</option>
       {/each}
@@ -409,7 +376,7 @@
       - 全局 select 已做统一高度/行高，但不同字体的字形度量会导致个别文案仍有轻微偏差。
       - 这里给该下拉框单独加 class，并做 1px 级别的微调，让视觉更接近“垂直居中”。
     -->
-    <select class="key-select" bind:value={selectedKeyId} disabled={busy || isLocked()}>
+    <select class="key-select" bind:value={selectedKeyId} disabled={busy}>
       <option value="">{$t("common.selectFromKeystore")}</option>
       {#each filteredEntries() as e}
         <option value={e.id}>{keyOptionLabel(e)}</option>
@@ -420,9 +387,9 @@
   <div class="actions">
     <div class="label" style="opacity: 0">.</div>
     <div class="btn-row">
-      <button class="primary" onclick={doEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
-      <button onclick={doDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
-      <button onclick={clearText} disabled={busy || isLocked()}>{$t("common.clear")}</button>
+      <button class="primary" onclick={doEncrypt} disabled={busy}>{$t("common.encrypt")}</button>
+      <button onclick={doDecrypt} disabled={busy}>{$t("common.decrypt")}</button>
+      <button onclick={clearText} disabled={busy}>{$t("common.clear")}</button>
     </div>
   </div>
 </div>
@@ -433,7 +400,7 @@
 
 <div class="io" style="margin-top: 12px">
   <div class="label">{$t("common.input")}</div>
-  <textarea bind:value={inputText} rows="8" placeholder={$t("text.ui.placeholders.input")} disabled={busy || isLocked()}></textarea>
+  <textarea bind:value={inputText} rows="8" placeholder={$t("text.ui.placeholders.input")} disabled={busy}></textarea>
 </div>
 
 <div class="io" style="margin-top: 12px">

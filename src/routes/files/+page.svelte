@@ -25,14 +25,6 @@
     asymmetric: string[];
   };
 
-  type KeyStoreStatus = {
-    exists: boolean;
-    encrypted: boolean;
-    unlocked: boolean;
-    version: number;
-    key_count: number | null;
-  };
-
   type KeyEntryPublic = {
     id: string;
     label: string;
@@ -94,9 +86,6 @@
   // 页面状态
   // =====================
 
-  // 密钥库状态：用于判断是否已锁定（锁定时无法列出密钥、也无法加解密）。
-  let status = $state<KeyStoreStatus | null>(null);
-
   // 后端支持的算法列表：用于填充算法下拉框。
   let supportedAlgorithms = $state<string[]>([]);
 
@@ -135,9 +124,6 @@
   // 解密任务会返回“将还原的文件名”，这里用于 UI 展示。
   let decryptOriginalName = $state<string>("");
 
-  function isLocked(): boolean {
-    return !!status?.encrypted && !status?.unlocked;
-  }
 
   function isRsaFamily(algo: string): boolean {
     return algo === "RSA2048" || algo === "RSA4096";
@@ -188,12 +174,8 @@
   }
 
   // =====================
-  // 初始化：加载算法列表 + 密钥库状态 + 密钥条目
+  // 初始化：加载算法列表 + 密钥条目
   // =====================
-
-  async function refreshStatus() {
-    status = await invoke<KeyStoreStatus>("keystore_status");
-  }
 
   async function refreshAlgorithms() {
     const algos = await invoke<SupportedAlgorithms>("get_supported_algorithms");
@@ -217,7 +199,6 @@
   }
 
   async function refreshAll() {
-    await refreshStatus();
     await refreshAlgorithms();
     await refreshFormSpecs();
     await refreshEntries();
@@ -229,7 +210,7 @@
       message = typeof e === "string" ? e : String(e);
     });
 
-    // 监听“密钥库状态变更”事件（来自布局/密钥管理页）。
+    // 监听密钥库变更事件（来自密钥管理页）：例如新增/删除/编辑后需要刷新密钥列表。
     const onKeystoreChanged = () => {
       refreshAll().catch(() => {
         // 忽略：失败时不阻塞 UI。
@@ -353,11 +334,6 @@
     decryptOriginalName = "";
     resetProgress();
 
-    if (isLocked()) {
-      message = $t("files.ui.errors.locked");
-      return;
-    }
-
     if (!selectedAlgorithm) {
       message = $t("files.ui.errors.selectAlgorithm");
       return;
@@ -410,11 +386,6 @@
     outputPath = "";
     decryptOriginalName = "";
     resetProgress();
-
-    if (isLocked()) {
-      message = $t("files.ui.errors.locked");
-      return;
-    }
 
     if (!selectedAlgorithm) {
       message = $t("files.ui.errors.selectAlgorithm");
@@ -500,7 +471,7 @@
 <div class="controls" aria-label={$t("files.title")}>
   <div class="field">
     <div class="label">{$t("common.algorithm")}</div>
-    <select bind:value={selectedAlgorithm} disabled={busy || isLocked()}>
+    <select bind:value={selectedAlgorithm} disabled={busy}>
       {#each supportedAlgorithms as a}
         <option value={a}>{a}</option>
       {/each}
@@ -514,7 +485,7 @@
       - 与“文本加密”页一致，用户反馈该下拉框在部分环境文字略偏下。
       - 通过单独 class 做 1px 级别的基线微调，确保视觉垂直居中更一致。
     -->
-    <select class="key-select" bind:value={selectedKeyId} disabled={busy || isLocked()}>
+    <select class="key-select" bind:value={selectedKeyId} disabled={busy}>
       <option value="">{$t("common.selectFromKeystore")}</option>
       {#each filteredEntries() as e}
         <option value={e.id}>{e.label}</option>
@@ -525,8 +496,8 @@
   <div class="actions">
     <div class="label" style="opacity: 0">.</div>
     <div class="btn-row">
-      <button class="primary" onclick={startEncrypt} disabled={busy || isLocked()}>{$t("common.encrypt")}</button>
-      <button onclick={startDecrypt} disabled={busy || isLocked()}>{$t("common.decrypt")}</button>
+      <button class="primary" onclick={startEncrypt} disabled={busy}>{$t("common.encrypt")}</button>
+      <button onclick={startDecrypt} disabled={busy}>{$t("common.decrypt")}</button>
       <!--
         取消按钮：
         - busy 且 taskId 为空：说明任务还没拿到 id（比如启动请求尚未返回），此时不能取消，避免发空请求。
@@ -541,7 +512,7 @@
   <div class="label">{$t("common.file")}</div>
   <div class="row">
     <input readonly bind:value={inputPath} placeholder={$t("files.ui.placeholders.inputFile")} />
-    <button onclick={browseInputFile} disabled={busy || isLocked()}>{$t("common.browse")}</button>
+    <button onclick={browseInputFile} disabled={busy}>{$t("common.browse")}</button>
   </div>
 </div>
 
@@ -549,7 +520,7 @@
   <div class="label">{$t("common.outputDir")}</div>
   <div class="row">
     <input readonly bind:value={outputDir} placeholder={$t("files.ui.placeholders.outputDir")} />
-    <button onclick={browseOutputDir} disabled={busy || isLocked()}>{$t("common.browse")}</button>
+    <button onclick={browseOutputDir} disabled={busy}>{$t("common.browse")}</button>
   </div>
 </div>
 
