@@ -15,7 +15,7 @@
   文件与格式：
   - 存储路径：AppData/keystore.json
   - JSON 容器：
-    - 明文：{ format: "plain", version: 2, data: {...} }
+    - 明文：{ format: "plain", data: {...} }
 
   说明：
   - 由于已移除“密钥库加密/解锁”，本模块不再包含任何 KDF/AEAD 相关实现。
@@ -31,22 +31,12 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-/// 密钥库版本：结构变更时用于迁移。
-///
-/// 注意：
-/// - 当前处于开发阶段，按你的要求不做向后兼容；
-/// - 版本升级后旧 keystore.json 可能无法读取，需要删除后重新创建。
-const KEYSTORE_VERSION: u32 = 2;
-
 /// 密钥库文件名（固定单文件）。
 const KEYSTORE_FILENAME: &str = "keystore.json";
 
 /// 密钥库内部数据（明文部分）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyStorePlain {
-    /// 结构版本。
-    pub version: u32,
-
     /// 密钥条目列表。
     pub key_entries: Vec<KeyEntry>,
 }
@@ -105,7 +95,6 @@ pub struct KeyEntry {
 #[serde(tag = "format", rename_all = "snake_case")]
 pub enum KeyStoreFile {
     Plain {
-        version: u32,
         data: KeyStorePlain,
     },
 }
@@ -114,7 +103,6 @@ pub enum KeyStoreFile {
 #[derive(Debug, Clone, Serialize)]
 pub struct KeyStoreStatus {
     pub exists: bool,
-    pub version: u32,
     pub key_count: Option<usize>,
 }
 
@@ -170,22 +158,16 @@ pub fn ensure_exists(app: &AppHandle) -> Result<(), KeyStoreError> {
     }
 
     let plain = KeyStorePlain {
-        version: KEYSTORE_VERSION,
         key_entries: Vec::new(),
     };
 
-    let file = KeyStoreFile::Plain {
-        version: KEYSTORE_VERSION,
-        data: plain,
-    };
+    let file = KeyStoreFile::Plain { data: plain };
 
     write_json_atomic(&path, &file)?;
     Ok(())
 }
 
-/// 读取密钥库明文。
-///
-/// 说明：开发阶段不做向后兼容，直接按当前结构读取。
+/// 读取密钥库明文：直接按当前结构读取。
 pub fn read_plain(app: &AppHandle) -> Result<KeyStorePlain, KeyStoreError> {
     let path = keystore_path(app)?;
     if !path.exists() {
@@ -195,7 +177,7 @@ pub fn read_plain(app: &AppHandle) -> Result<KeyStorePlain, KeyStoreError> {
     let bytes = fs::read(path)?;
     let file: KeyStoreFile = serde_json::from_slice(&bytes)?;
     match file {
-        KeyStoreFile::Plain { data, .. } => Ok(data),
+        KeyStoreFile::Plain { data } => Ok(data),
     }
 }
 
@@ -205,7 +187,6 @@ pub fn status(app: &AppHandle) -> Result<KeyStoreStatus, KeyStoreError> {
     if !path.exists() {
         return Ok(KeyStoreStatus {
             exists: false,
-            version: KEYSTORE_VERSION,
             key_count: Some(0),
         });
     }
@@ -213,7 +194,6 @@ pub fn status(app: &AppHandle) -> Result<KeyStoreStatus, KeyStoreError> {
     let plain = read_plain(app)?;
     Ok(KeyStoreStatus {
         exists: true,
-        version: plain.version,
         key_count: Some(plain.key_entries.len()),
     })
 }
@@ -221,15 +201,7 @@ pub fn status(app: &AppHandle) -> Result<KeyStoreStatus, KeyStoreError> {
 /// 将密钥库写回磁盘（明文）。
 pub fn write_plain(app: &AppHandle, plain: &KeyStorePlain) -> Result<(), KeyStoreError> {
     let path = keystore_path(app)?;
-
-    let mut normalized = plain.clone();
-    // 防御：无论上层如何改动，写回时都统一落盘为当前版本号。
-    normalized.version = KEYSTORE_VERSION;
-
-    let file = KeyStoreFile::Plain {
-        version: KEYSTORE_VERSION,
-        data: normalized,
-    };
+    let file = KeyStoreFile::Plain { data: plain.clone() };
     write_json_atomic(&path, &file)
 }
 

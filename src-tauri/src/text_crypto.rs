@@ -1,7 +1,7 @@
 /*
   文本加密/解密核心（Rust 后端执行）：
   - 需求要求：加密/解密必须在后端执行，前端只负责 UI 与参数收集。
-  - 输出格式：使用 JSON “自描述容器”，便于未来扩展与兼容。
+  - 输出格式：使用 JSON “自描述容器”，便于区分不同算法/模式。
   - 安全策略：
     1) 对称加密一律使用 AEAD（认证加密，防篡改）
     2) RSA（RSA2048 / RSA4096）：优先尝试 OAEP 直接加密；超出长度限制时自动切换为混合加密
@@ -13,9 +13,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::keystore;
-
-/// 文本加密容器版本：将来结构变更可用它做兼容/迁移。
-pub(crate) const TEXT_CIPHER_VERSION: u32 = 1;
 
 /// 统一的“密钥错误/数据损坏”提示：解密失败必须明确提示，但不泄露细节。
 pub(crate) const DECRYPT_FAIL_MSG: &str = "密钥错误或数据已损坏";
@@ -45,7 +42,6 @@ pub struct TextDecryptResponse {
 pub(crate) enum TextCipherPayload {
     /// 对称 AEAD（AES-256-GCM / ChaCha20-Poly1305）
     SymmetricAead {
-        v: u32,
         alg: String,
         nonce_b64: String,
         ciphertext_b64: String,
@@ -53,7 +49,6 @@ pub(crate) enum TextCipherPayload {
 
     /// RSA-OAEP 直接加密（仅当明文较短时可用）
     RsaOaep {
-        v: u32,
         alg: String,
         ciphertext_b64: String,
     },
@@ -62,7 +57,6 @@ pub(crate) enum TextCipherPayload {
     /// - wrapped_key_b64：RSA-OAEP 包裹的 32 字节会话密钥
     /// - ciphertext_b64：使用 data_alg 对正文做 AEAD 后的密文（含 tag）
     HybridRsa {
-        v: u32,
         alg: String,
         data_alg: String,
         nonce_b64: String,
@@ -74,7 +68,6 @@ pub(crate) enum TextCipherPayload {
     /// - eph_public_b64：发送方临时公钥（32 字节），用于接收方复原共享密钥
     /// - ciphertext_b64：使用 data_alg 对正文做 AEAD 后的密文（含 tag）
     HybridX25519 {
-        v: u32,
         alg: String,
         data_alg: String,
         nonce_b64: String,
@@ -156,18 +149,6 @@ pub fn decrypt_text(
     // 解析密文容器（解析失败视为“数据损坏”）。
     let payload: TextCipherPayload =
         serde_json::from_str(input.trim()).map_err(|_| DECRYPT_FAIL_MSG.to_string())?;
-
-    // 版本检查：将来版本升级可在此做兼容。
-    // 当前策略：版本不一致直接视为无法解密。
-    let version_ok = match &payload {
-        TextCipherPayload::SymmetricAead { v, .. }
-        | TextCipherPayload::RsaOaep { v, .. }
-        | TextCipherPayload::HybridRsa { v, .. }
-        | TextCipherPayload::HybridX25519 { v, .. } => *v == TEXT_CIPHER_VERSION,
-    };
-    if !version_ok {
-        return Err(DECRYPT_FAIL_MSG.to_string());
-    }
 
     // 具体解密逻辑交给 crypto_algorithms；此处做统一错误收敛。
     let pt = crate::crypto_algorithms::text_decrypt(algo, entry, payload)

@@ -219,8 +219,6 @@ pub fn file_decrypt_unwrap_data_key(
 /// 文件加密准备阶段需要的元数据：由 file_crypto 负责收集，本模块只负责按算法写入 header。
 #[derive(Debug, Clone)]
 pub struct FileEncryptMeta {
-    /// 文件容器版本号（用于 header.v）。
-    pub version: u32,
     /// 分块大小（用于 header.chunk_size）。
     pub chunk_size: u32,
     /// 原文件大小。

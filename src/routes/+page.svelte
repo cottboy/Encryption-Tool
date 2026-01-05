@@ -14,7 +14,6 @@
 
   type KeyStoreStatus = {
     exists: boolean;
-    version: number;
     key_count: number | null;
   };
 

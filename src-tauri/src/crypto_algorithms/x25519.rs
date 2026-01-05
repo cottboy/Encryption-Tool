@@ -22,7 +22,7 @@ use zeroize::Zeroizing;
 use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta, KeyPartSpec};
 use crate::file_crypto::FileCipherHeader;
 use crate::keystore;
-use crate::text_crypto::{TextCipherPayload, TEXT_CIPHER_VERSION};
+use crate::text_crypto::TextCipherPayload;
 
 use super::utils;
 
@@ -210,7 +210,6 @@ pub fn text_encrypt(
 
     Ok((
         TextCipherPayload::HybridX25519 {
-            v: TEXT_CIPHER_VERSION,
             alg: "X25519".to_string(),
             data_alg: "AES-256".to_string(),
             nonce_b64: B64.encode(nonce),
@@ -301,7 +300,6 @@ pub fn file_encrypt_prepare(
         .map_err(|_| "HKDF 派生失败".to_string())?;
 
     let header = FileCipherHeader::HybridX25519Stream {
-        v: meta.version,
         alg: "X25519".to_string(),
         data_alg: "AES-256".to_string(),
         chunk_size: meta.chunk_size,

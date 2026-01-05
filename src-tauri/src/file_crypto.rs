@@ -10,7 +10,6 @@
   设计说明（本阶段最小可用实现）：
   - `.encrypted` 文件格式：一个“自描述容器”：
     - 前 4 字节：魔数 "ETEN"
-    - 接着 4 字节：版本号（u32，小端）
     - 接着 4 字节：Header JSON 的字节长度（u32，小端）
     - 接着：Header JSON（UTF-8）
     - 最后：密文数据流（按 chunk_size 分块，每块使用 AEAD 独立加密并附带 tag）
@@ -35,9 +34,6 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
-
-/// 文件容器版本：结构变更时用于兼容/迁移。
-const FILE_CIPHER_VERSION: u32 = 1;
 
 /// 文件容器魔数：用于快速判断是否为本软件生成的 `.encrypted` 文件。
 const FILE_MAGIC: &[u8; 4] = b"ETEN";
@@ -75,7 +71,6 @@ const MAX_HEADER_JSON_LEN: u32 = 10 * 1024 * 1024;
 pub enum FileCipherHeader {
     /// 对称分块加密：AES-256 / ChaCha20
     SymmetricStream {
-        v: u32,
         alg: String,
         chunk_size: u32,
         file_size: u64,
@@ -86,7 +81,6 @@ pub enum FileCipherHeader {
 
     /// RSA 混合分块加密：RSA 包裹会话密钥 + 数据流对称分块
     HybridRsaStream {
-        v: u32,
         alg: String,
         data_alg: String,
         chunk_size: u32,
@@ -99,7 +93,6 @@ pub enum FileCipherHeader {
 
     /// X25519 混合分块加密：X25519 协商/封装 + 数据流对称分块
     HybridX25519Stream {
-        v: u32,
         alg: String,
         data_alg: String,
         chunk_size: u32,
@@ -275,11 +268,6 @@ pub fn read_header_only(encrypted_path: &Path) -> Result<FileCipherHeader, Strin
         return Err("不是有效的 .encrypted 文件（魔数不匹配）".to_string());
     }
 
-    let v = read_u32_le(&mut r).map_err(|e| format!("读取版本号失败：{e}"))?;
-    if v != FILE_CIPHER_VERSION {
-        return Err(format!("不支持的加密文件版本：{v}"));
-    }
-
     let header_len = read_u32_le(&mut r).map_err(|e| format!("读取 header 长度失败：{e}"))?;
     // 关键防护：限制 header 长度，避免恶意文件导致巨量内存分配（OOM/崩溃）。
     let header_len_usize = checked_header_len(header_len)?;
@@ -346,7 +334,6 @@ pub fn encrypt_file_stream(
         // 说明：不同算法的 header 结构与会话密钥生成/包裹方式不同，
         // 这里统一交给 crypto_algorithms（每种算法一个文件）做分发。
         let meta = crate::crypto_algorithms::FileEncryptMeta {
-            version: FILE_CIPHER_VERSION,
             chunk_size: DEFAULT_CHUNK_SIZE,
             file_size: total,
             original_file_name,
@@ -360,7 +347,6 @@ pub fn encrypt_file_stream(
         // ========== 写文件头 ==========
         out.write_all(FILE_MAGIC)
             .map_err(|e| format!("写入魔数失败：{e}"))?;
-        write_u32_le(&mut out, FILE_CIPHER_VERSION).map_err(|e| format!("写入版本号失败：{e}"))?;
 
         let header_json =
             serde_json::to_vec(&header).map_err(|e| format!("序列化 header 失败：{e}"))?;
@@ -476,11 +462,6 @@ pub fn decrypt_file_stream(
             .map_err(|e| format!("读取文件头失败：{e}"))?;
         if &magic != FILE_MAGIC {
             return Err("不是有效的 .encrypted 文件（魔数不匹配）".to_string());
-        }
-
-        let v = read_u32_le(&mut r).map_err(|e| format!("读取版本号失败：{e}"))?;
-        if v != FILE_CIPHER_VERSION {
-            return Err(format!("不支持的加密文件版本：{v}"));
         }
 
         let header_len = read_u32_le(&mut r).map_err(|e| format!("读取 header 长度失败：{e}"))?;

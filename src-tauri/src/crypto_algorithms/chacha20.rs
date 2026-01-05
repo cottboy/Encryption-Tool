@@ -13,7 +13,7 @@ use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce}
 use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta, KeyPartSpec};
 use crate::file_crypto::FileCipherHeader;
 use crate::keystore;
-use crate::text_crypto::{TextCipherPayload, TEXT_CIPHER_VERSION};
+use crate::text_crypto::TextCipherPayload;
 
 use super::utils;
 
@@ -76,7 +76,6 @@ pub fn text_encrypt(
 
     Ok((
         TextCipherPayload::SymmetricAead {
-            v: TEXT_CIPHER_VERSION,
             alg: "ChaCha20".to_string(),
             nonce_b64: B64.encode(nonce),
             ciphertext_b64: B64.encode(ct),
@@ -119,7 +118,6 @@ pub fn file_encrypt_prepare(
     meta: FileEncryptMeta,
 ) -> Result<(FileCipherHeader, zeroize::Zeroizing<[u8; 32]>), String> {
     let header = FileCipherHeader::SymmetricStream {
-        v: meta.version,
         alg: "ChaCha20".to_string(),
         chunk_size: meta.chunk_size,
         file_size: meta.file_size,

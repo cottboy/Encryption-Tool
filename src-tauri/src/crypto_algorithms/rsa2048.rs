@@ -25,7 +25,7 @@ use zeroize::Zeroizing;
 use crate::crypto_algorithms::{AlgorithmCategory, AlgorithmSpec, FileEncryptMeta, KeyPartSpec};
 use crate::file_crypto::FileCipherHeader;
 use crate::keystore;
-use crate::text_crypto::{TextCipherPayload, TEXT_CIPHER_VERSION};
+use crate::text_crypto::TextCipherPayload;
 
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     id: "RSA2048",
@@ -125,7 +125,6 @@ pub fn text_encrypt(
 
         Ok((
             TextCipherPayload::RsaOaep {
-                v: TEXT_CIPHER_VERSION,
                 alg: "RSA2048".to_string(),
                 ciphertext_b64: B64.encode(ct),
             },
@@ -146,7 +145,6 @@ pub fn text_encrypt(
 
         Ok((
             TextCipherPayload::HybridRsa {
-                v: TEXT_CIPHER_VERSION,
                 alg: "RSA2048".to_string(),
                 data_alg: "AES-256".to_string(),
                 nonce_b64: B64.encode(nonce),
@@ -235,7 +233,6 @@ pub fn file_encrypt_prepare(
         .map_err(|e| format!("RSA 包裹会话密钥失败：{e}"))?;
 
     let header = FileCipherHeader::HybridRsaStream {
-        v: meta.version,
         alg: "RSA2048".to_string(),
         data_alg: "AES-256".to_string(),
         chunk_size: meta.chunk_size,
