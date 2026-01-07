@@ -8,11 +8,6 @@
     }
   },
   "common": {
-    "notImplemented": "该功能尚未实现",
-    "refresh": "刷新",
-    "create": "创建",
-    "apply": "应用",
-    "remove": "移除",
     "encrypt": "加密",
     "decrypt": "解密",
     "browse": "浏览",
@@ -22,42 +17,22 @@
     "output": "输出",
     "file": "输入",
     "outputDir": "输出",
-    "password": "密码",
     "selectFromKeystore": "从密钥库选择",
-    "none": "暂无",
     "ok": "确定",
     "cancel": "取消",
     "clear": "清空",
-    "close": "关闭",
     "loading": "加载中…",
-    "show": "显示",
-    "hide": "隐藏",
     "name": "名称",
-    "type": "类型",
-    "actions": "操作"
+    "type": "类型"
   },
   "keys": {
     "title": "密钥管理",
     "ui": {
-      "keyListTitle": "密钥列表",
       "detailTitle": "密钥详情",
-      "actions": {
-        "preview": "预览密钥",
-        "export": "导出密钥"
-      },
       "emptyKeys": "当前还没有密钥。",
-      "status": "状态",
-      "keyCount": "密钥数量",
-      "version": "版本",
-      "opsTitle": "密钥操作",
       "generateTitle": "生成密钥",
       "importTitle": "导入密钥",
-      "exportTitle": "导出密钥",
-      "deleteTitle": "删除密钥",
       "delete": "删除",
-      "exportFormat": "导出格式",
-      "chooseFile": "选择文件…",
-      "saveFile": "保存…",
       "placeholders": {
         "symmetricB64": "请输入 Base64 编码的 32 字节密钥…",
         "x25519PublicB64": "请输入 Base64 编码的 32 字节公钥…（可选）",
@@ -76,29 +51,10 @@
         "x25519SecretOnly": "仅私钥",
         "x25519Full": "完整"
       },
-      "confirmDelete": "确定删除该密钥吗？",
-      "selectKeyFirst": "请先在左侧选择一个密钥。",
-      "formats": {
-        "key_b64": "Base64（原始密钥）",
-        "rsa_private_pem": "RSA 私钥 PEM（PKCS8）",
-        "rsa_public_pem": "RSA 公钥 PEM（SPKI）",
-        "x25519_json": "X25519 JSON（私钥+公钥）",
-        "x25519_public_b64": "X25519 公钥 Base64"
-      },
-      "table": {
-        "name": "名称",
-        "type": "类型",
-        "actions": "操作"
-      },
       "errors": {
         "nameRequired": "请输入密钥名称"
       },
-      "msg": {
-        "exported": "已导出到：{path}"
-      },
-      "previewTitle": "预览",
       "preview": {
-        "algorithm": "算法",
         "publicPem": "公钥（PEM）",
         "privatePem": "私钥（PEM）",
         "publicB64": "公钥（Base64）",
@@ -116,10 +72,6 @@
         "input": "在此输入待处理文本",
         "output": "结果会显示在这里"
       },
-      "keyHint": {
-        "rsaPublic": "（公钥）",
-        "rsaPrivate": "（私钥）"
-      },
       "msg": {
         "rsaHybrid": "文本较长，已自动使用混合加密。"
       },
@@ -135,9 +87,6 @@
   },
   "files": {
     "title": "文件加密",
-    "help": {
-      "progress": "进度条与取消逻辑在流式分块任务中实时更新。"
-    },
     "ui": {
       "placeholders": {
         "inputFile": "请选择待加密/解密的文件",

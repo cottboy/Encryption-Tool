@@ -8,11 +8,6 @@
     }
   },
   "common": {
-    "notImplemented": "Not implemented yet",
-    "refresh": "Refresh",
-    "create": "Create",
-    "apply": "Apply",
-    "remove": "Remove",
     "encrypt": "Encrypt",
     "decrypt": "Decrypt",
     "browse": "Browse",
@@ -22,42 +17,22 @@
     "output": "Output",
     "file": "Input",
     "outputDir": "Output",
-    "password": "Password",
     "selectFromKeystore": "Select from keystore",
-    "none": "None",
     "ok": "OK",
     "cancel": "Cancel",
     "clear": "Clear",
-    "close": "Close",
     "loading": "Loading…",
-    "show": "Show",
-    "hide": "Hide",
     "name": "Name",
-    "type": "Type",
-    "actions": "Actions"
+    "type": "Type"
   },
   "keys": {
     "title": "Key Management",
     "ui": {
-      "keyListTitle": "Keys",
       "detailTitle": "Key Details",
-      "actions": {
-        "preview": "Preview key",
-        "export": "Export key"
-      },
       "emptyKeys": "No keys yet.",
-      "status": "Status",
-      "keyCount": "Key count",
-      "version": "Version",
-      "opsTitle": "Key Operations",
       "generateTitle": "Generate",
       "importTitle": "Import",
-      "exportTitle": "Export",
-      "deleteTitle": "Delete",
       "delete": "Delete",
-      "exportFormat": "Export format",
-      "chooseFile": "Choose file…",
-      "saveFile": "Save…",
       "placeholders": {
         "symmetricB64": "Enter a Base64-encoded 32-byte key…",
         "x25519PublicB64": "Enter a Base64-encoded 32-byte public key… (optional)",
@@ -76,29 +51,10 @@
         "x25519SecretOnly": " (private only)",
         "x25519Full": " (full)"
       },
-      "confirmDelete": "Delete this key?",
-      "selectKeyFirst": "Select a key first.",
-      "formats": {
-        "key_b64": "Base64 (raw key)",
-        "rsa_private_pem": "RSA private key PEM (PKCS8)",
-        "rsa_public_pem": "RSA public key PEM (SPKI)",
-        "x25519_json": "X25519 JSON (secret+public)",
-        "x25519_public_b64": "X25519 public key Base64"
-      },
-      "table": {
-        "name": "Name",
-        "type": "Type",
-        "actions": "Actions"
-      },
       "errors": {
         "nameRequired": "Please enter a key name"
       },
-      "msg": {
-        "exported": "Exported: {path}"
-      },
-      "previewTitle": "Preview",
       "preview": {
-        "algorithm": "Algorithm",
         "publicPem": "Public key (PEM)",
         "privatePem": "Private key (PEM)",
         "publicB64": "Public (Base64)",
@@ -116,10 +72,6 @@
         "input": "Enter text here",
         "output": "Result will appear here"
       },
-      "keyHint": {
-        "rsaPublic": "(public)",
-        "rsaPrivate": "(private)"
-      },
       "msg": {
         "rsaHybrid": "Text is long; hybrid encryption is used automatically."
       },
@@ -135,9 +87,6 @@
   },
   "files": {
     "title": "File Crypto",
-    "help": {
-      "progress": "Progress and cancel update in real time during streaming."
-    },
     "ui": {
       "placeholders": {
         "inputFile": "Choose a file to encrypt/decrypt",
