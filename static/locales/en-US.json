@@ -45,9 +45,6 @@
         "rsaPrivatePem": "Paste RSA private key PEM (optional)…"
       },
       "hints": {
-        "mlkem768Public": "A generates a keypair and sends the public key to B. B pastes it and clicks “Generate encapsulation”.",
-        "mlkem768Secret": "A keeps the private key; do not share it.",
-        "mlkem768Ct": "B sends the encapsulation to A. A pastes it and clicks OK to save and establish the session (shared key is stored in keystore)."
       },
       "materialSuffix": {
         "rsaPublicOnly": " (public only)",

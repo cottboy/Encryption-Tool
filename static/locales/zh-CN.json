@@ -45,9 +45,6 @@
         "rsaPrivatePem": "粘贴 RSA 私钥 PEM（可选）…"
       },
       "hints": {
-        "mlkem768Public": "A 端生成密钥对后，把公钥发给 B；B 端填入公钥后点击“生成封装密钥”。",
-        "mlkem768Secret": "A 端生成并保存私钥；不要泄露给对方。",
-        "mlkem768Ct": "B 端生成封装密钥后发给 A；A 端填入后点击确定保存以建立会话（共享密钥会写入密钥库）。"
       },
       "materialSuffix": {
         "rsaPublicOnly": "仅公钥",
