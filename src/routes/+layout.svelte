@@ -8,7 +8,7 @@
 <script lang="ts">
   import "../app.css";
 
-  import { locale, setLocale, supportedLocales, t, type SupportedLocale } from "$lib/i18n";
+  import { t } from "$lib/i18n";
   import { page } from "$app/stores";
 
   // Svelte 5：布局内容通过 children 渲染，替代 <slot />。
@@ -28,11 +28,6 @@
     if (tabPath === "/") return pathname === "/";
     return pathname.startsWith(tabPath);
   }
-
-  async function onLocaleChange(e: Event) {
-    const value = (e.target as HTMLSelectElement).value as SupportedLocale;
-    await setLocale(value);
-  }
 </script>
 
 <div class="app">
@@ -40,14 +35,14 @@
     <div class="topbar-inner container">
       <!--
         顶部栏布局（macOS 风格）：
-        - 左：应用名
+        - 左：留空（占位，确保中间分段控件始终居中）
         - 中：主功能分段控件（密钥管理 / 文本加密 / 文件加密）
-        - 右：语言切换
-        这样可以让分段控件在视觉上“居中且对称”，避免挤在一侧造成廉价感。
+        - 右：留空（占位，确保中间分段控件始终居中）
+        说明：
+        - 已移除左上角“Encryption Tool”字样；
+        - 已移除右上角语言切换，下方 i18n 会按系统语言自动选择。
       -->
-      <div class="topbar-left">
-        <div class="brand">{$t("app.title")}</div>
-      </div>
+      <div class="topbar-left" aria-hidden="true"></div>
 
       <nav class="tabs" aria-label="主功能标签">
         {#each tabs as tab}
@@ -60,13 +55,7 @@
         {/each}
       </nav>
 
-      <div class="topbar-right locale">
-        <select aria-label="语言" onchange={onLocaleChange} bind:value={$locale}>
-          {#each supportedLocales as loc}
-            <option value={loc}>{loc}</option>
-          {/each}
-        </select>
-      </div>
+      <div class="topbar-right" aria-hidden="true"></div>
     </div>
   </header>
 
@@ -100,13 +89,6 @@
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     column-gap: 12px;
-  }
-
-  .brand {
-    font-size: 13px;
-    font-weight: 600;
-    user-select: none;
-    white-space: nowrap;
   }
 
   .topbar-left {
@@ -167,25 +149,6 @@
     box-shadow:
       0 1px 1px rgba(0, 0, 0, 0.10),
       inset 0 1px 0 rgba(255, 255, 255, 0.70);
-  }
-
-  .locale select {
-    font-size: 12px;
-    /*
-      语言选择下拉框属于“紧凑控件”，本地需要覆盖全局的 padding：
-      - 但全局 select 会为自定义箭头预留右侧空间（padding-right）。
-      - 这里必须把 padding-right 单独补回来，否则文字会被箭头遮挡，也会显得“贴边”。
-    */
-    /*
-      全局单选 select 会固定高度为 40px 来保证文字垂直居中（更稳定），
-      但顶部语言切换需要更紧凑，因此这里覆盖为更小的高度与对应的 line-height。
-    */
-    height: 30px;
-    padding: 0 28px 0 10px;
-    line-height: 28px;
-
-    /* 对齐紧凑尺寸下的箭头位置：右侧留白更自然 */
-    background-position: right 10px center;
   }
 
   .main {

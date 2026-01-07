@@ -18,19 +18,36 @@ export type LocaleMessages = Record<string, unknown>;
 export const supportedLocales = ["zh-CN", "en-US"] as const;
 export type SupportedLocale = (typeof supportedLocales)[number];
 
-// 默认语言：中文优先。
+// 默认语言：当系统语言无法匹配时使用。
 const defaultLocale: SupportedLocale = "zh-CN";
 
-// 读取用户偏好的初始语言。
-function getInitialLocale(): SupportedLocale {
-  try {
-    const saved = localStorage.getItem("encryption_tool_locale");
-    if (saved && (supportedLocales as readonly string[]).includes(saved)) {
-      return saved as SupportedLocale;
-    }
-  } catch {
-    // localStorage 不可用时忽略，回退默认语言。
+function normalizeLocaleTag(tag: string): string {
+  return tag.trim().replace("_", "-");
+}
+
+// 根据系统语言（WebView/浏览器）选择初始语言。
+function getSystemLocale(): SupportedLocale {
+  const candidates: string[] = [];
+
+  if (typeof navigator !== "undefined") {
+    if (Array.isArray(navigator.languages)) candidates.push(...navigator.languages);
+    if (navigator.language) candidates.push(navigator.language);
   }
+
+  const normalized = candidates.map(normalizeLocaleTag).filter(Boolean);
+
+  // 1) 先尝试精确匹配（例如 en-US / zh-CN）。
+  for (const tag of normalized) {
+    if ((supportedLocales as readonly string[]).includes(tag)) return tag as SupportedLocale;
+  }
+
+  // 2) 再按“主语言”兜底匹配（例如 zh-Hans / en-GB）。
+  for (const tag of normalized) {
+    const primary = tag.split("-")[0]?.toLowerCase();
+    if (primary === "zh") return "zh-CN";
+    if (primary === "en") return "en-US";
+  }
+
   return defaultLocale;
 }
 
@@ -49,17 +66,11 @@ async function loadMessages(next: SupportedLocale): Promise<LocaleMessages> {
   return (await resp.json()) as LocaleMessages;
 }
 
-// 设置语言：加载翻译、更新状态、持久化偏好。
+// 设置语言：加载翻译、更新状态。
 export async function setLocale(next: SupportedLocale): Promise<void> {
   const data = await loadMessages(next);
   messages.set(data);
   locale.set(next);
-
-  try {
-    localStorage.setItem("encryption_tool_locale", next);
-  } catch {
-    // 写入失败不影响功能。
-  }
 
   try {
     document.documentElement.lang = next;
@@ -106,9 +117,9 @@ export const t: Readable<(key: string, vars?: Record<string, string | number>) =
   }
 );
 
-// 模块初始化：启动时加载用户偏好语言（或默认语言）。
+// 模块初始化：启动时按系统语言自动选择（匹配不到则用默认语言）。
 (async () => {
-  const initial = getInitialLocale();
+  const initial = getSystemLocale();
   try {
     await setLocale(initial);
   } catch {
