@@ -221,6 +221,11 @@ fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPar
         return Err(format!("{ALG_ID} 不支持的字段：{extra}"));
     }
 
+    // 产品一致性：导入/编辑保存时，至少填写一个字段，避免空条目污染密钥库。
+    if public_in.is_none() && secret_in.is_none() && ct_in.is_none() && shared_in.is_none() {
+        return Err("请至少填写一个字段".to_string());
+    }
+
     let mut out: Vec<keystore::KeyPart> = Vec::new();
 
     if let Some(p) = public_in {
