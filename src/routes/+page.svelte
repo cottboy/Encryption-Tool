@@ -62,6 +62,7 @@
   type AlgorithmKeyPartSpec = {
     id: string;
     encoding: KeyPartEncoding;
+    hidden: boolean;
     label_key: string;
     placeholder_key: string | null;
     rows: number;
@@ -127,6 +128,10 @@
 
   // Detail（点击密钥行打开）
   let detail = $state<KeyDetail | null>(null);
+
+  type MlKem768GenerateEncapsulationResponse = {
+    ct_b64: string;
+  };
 
   // 弹窗内提示信息：
   // - 之前 message 渲染在页面底部，弹窗遮罩会挡住，用户会误以为“点确定没反应”。
@@ -313,6 +318,20 @@
       modalMessage = formatError(e);
       showDetail = false;
     }
+  }
+
+  async function reloadDetail(id: string) {
+    const raw = await invoke<KeyDetailRaw>("keystore_get_key_detail", { req: { id } });
+    const map: Record<string, string> = {};
+    for (const p of raw.parts) {
+      map[p.id] = p.value ?? "";
+    }
+    detail = {
+      id: raw.id,
+      label: raw.label,
+      key_type: raw.key_type,
+      parts: map
+    };
   }
 
   function buildUpsertPayload(tp: string, label: string, partValues: Record<string, string>) {
@@ -519,18 +538,20 @@
       {#if algorithmSpecsById[importType]}
         {@const importSpec = algorithmSpecsById[importType]}
         {#each importSpec.key_parts as p (p.id)}
-          <div class="label" style="margin-top: 12px">{$t(p.label_key)}</div>
-          <textarea
-            rows={p.rows}
-            value={importParts[p.id] ?? ""}
-            placeholder={p.placeholder_key ? $t(p.placeholder_key) : ""}
-            oninput={(e) => {
-              importParts[p.id] = (e.target as HTMLTextAreaElement).value;
-            }}
-          ></textarea>
+          {#if !p.hidden}
+            <div class="label" style="margin-top: 12px">{$t(p.label_key)}</div>
+            <textarea
+              rows={p.rows}
+              value={importParts[p.id] ?? ""}
+              placeholder={p.placeholder_key ? $t(p.placeholder_key) : ""}
+              oninput={(e) => {
+                importParts[p.id] = (e.target as HTMLTextAreaElement).value;
+              }}
+            ></textarea>
 
-          {#if p.hint_key}
-            <div class="help" style="margin-top: 8px">{$t(p.hint_key)}</div>
+            {#if p.hint_key}
+              <div class="help" style="margin-top: 8px">{$t(p.hint_key)}</div>
+            {/if}
           {/if}
         {/each}
       {:else}
@@ -584,20 +605,22 @@
       {#if algorithmSpecsById[detail.key_type]}
           {@const detailSpec = algorithmSpecsById[detail.key_type]}
           {#each detailSpec.key_parts as p (p.id)}
-            <div class="label" style="margin-top: 12px">{$t(p.label_key)}</div>
-            <textarea
-              rows={p.rows}
-              value={detail.parts[p.id] ?? ""}
-              placeholder={p.placeholder_key ? $t(p.placeholder_key) : ""}
-              oninput={(e) => {
-                // 防御：这里理论上 detail 一定存在（外层已判断），但 TS 无法在回调里做窄化。
-                if (!detail) return;
-                detail.parts[p.id] = (e.target as HTMLTextAreaElement).value;
-              }}
-            ></textarea>
+            {#if !p.hidden}
+              <div class="label" style="margin-top: 12px">{$t(p.label_key)}</div>
+              <textarea
+                rows={p.rows}
+                value={detail.parts[p.id] ?? ""}
+                placeholder={p.placeholder_key ? $t(p.placeholder_key) : ""}
+                oninput={(e) => {
+                  // 防御：这里理论上 detail 一定存在（外层已判断），但 TS 无法在回调里做窄化。
+                  if (!detail) return;
+                  detail.parts[p.id] = (e.target as HTMLTextAreaElement).value;
+                }}
+              ></textarea>
 
-            {#if p.hint_key}
-              <div class="help" style="margin-top: 8px">{$t(p.hint_key)}</div>
+              {#if p.hint_key}
+                <div class="help" style="margin-top: 8px">{$t(p.hint_key)}</div>
+              {/if}
             {/if}
           {/each}
         {:else}
@@ -617,6 +640,26 @@
           }}>{$t("common.ok")}</button>
           <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
         </div>
+
+        {#if detail && detail.key_type === "ML-KEM-768"}
+          <button onclick={async () => {
+            try {
+              modalMessage = "";
+              if (!detail) return;
+              const id = detail.id;
+              const res = await invoke<MlKem768GenerateEncapsulationResponse>("mlkem768_generate_encapsulation", {
+                req: { id }
+              });
+              // 更新本地展示（封装密钥），并重新拉取详情，确保隐藏的共享密钥也被保留。
+              detail.parts["mlkem768_ct_b64"] = res.ct_b64;
+              await reloadDetail(id);
+              await refresh();
+              notifyKeystoreChanged();
+            } catch (e) {
+              modalMessage = formatError(e);
+            }
+          }}>{$t("keys.ui.generateEncapsulation")}</button>
+        {/if}
 
         <button class="danger" onclick={async () => {
           try {

@@ -37,6 +37,7 @@
   type AlgorithmKeyPartSpec = {
     id: string;
     encoding: KeyPartEncoding;
+    hidden: boolean;
     label_key: string;
     placeholder_key: string | null;
     rows: number;
@@ -345,6 +346,8 @@
     if (!canEncryptWithSelectedKey()) {
       if (selectedAlgorithm === "X25519") {
         message = $t("files.ui.errors.x25519NeedFull");
+      } else if (selectedAlgorithm === "ML-KEM-768") {
+        message = $t("files.ui.errors.mlkemNeedSession");
       } else if (isRsaFamily(selectedAlgorithm)) {
         message = $t("files.ui.errors.rsaNeedPublic");
       } else {
@@ -398,6 +401,8 @@
     if (!canDecryptWithSelectedKey()) {
       if (selectedAlgorithm === "X25519") {
         message = $t("files.ui.errors.x25519NeedFull");
+      } else if (selectedAlgorithm === "ML-KEM-768") {
+        message = $t("files.ui.errors.mlkemNeedSession");
       } else if (isRsaFamily(selectedAlgorithm)) {
         message = $t("files.ui.errors.rsaNeedPrivate");
       } else {

@@ -17,6 +17,7 @@
 
 mod aes256;
 mod chacha20;
+mod mlkem768;
 mod rsa2048;
 mod rsa4096;
 mod utils;
@@ -47,6 +48,8 @@ pub struct KeyPartSpec {
     pub id: &'static str,
     /// part 的编码类型：用于前端提示与后端解析（base64/pem/hex/utf8）。
     pub encoding: keystore::KeyPartEncoding,
+    /// 是否为“隐藏字段”：不在 UI 表单中展示，但仍会参与 required 判定与持久化。
+    pub hidden: bool,
     /// i18n 翻译 key：用于 label，例如 "keys.ui.preview.publicPem"。
     pub label_key: &'static str,
     /// i18n 翻译 key：用于 placeholder（可选）。
@@ -95,6 +98,7 @@ pub fn all_specs() -> &'static [AlgorithmSpec] {
         rsa2048::SPEC,
         rsa4096::SPEC,
         x25519::SPEC,
+        mlkem768::SPEC,
     ]
 }
 
@@ -122,6 +126,18 @@ pub fn generate_x25519_keypair_b64() -> (String, String) {
     x25519::generate_keypair_b64()
 }
 
+/// 生成 ML-KEM-768 密钥对（Base64）：secret_b64 + public_b64。
+pub fn generate_mlkem768_keypair_b64() -> (String, String) {
+    mlkem768::generate_keypair_b64()
+}
+
+/// 使用 ML-KEM-768 公钥封装：返回 (封装密钥 ct 的 Base64, 共享密钥 ss(32字节))。
+pub fn mlkem768_encapsulate_to_public_b64(
+    public_b64: &str,
+) -> Result<(String, zeroize::Zeroizing<[u8; 32]>), String> {
+    mlkem768::encapsulate_to_public_b64(public_b64)
+}
+
 /// 文本加密：根据算法 id 分发到对应算法文件。
 pub fn text_encrypt(
     algorithm: &str,
@@ -134,6 +150,7 @@ pub fn text_encrypt(
         "RSA-2048" => rsa2048::text_encrypt(entry, plaintext),
         "RSA-4096" => rsa4096::text_encrypt(entry, plaintext),
         "X25519" => x25519::text_encrypt(entry, plaintext),
+        "ML-KEM-768" => mlkem768::text_encrypt(entry, plaintext),
         _ => Err("不支持的算法".to_string()),
     }
 }
@@ -150,6 +167,7 @@ pub fn text_decrypt(
         "RSA-2048" => rsa2048::text_decrypt(entry, payload),
         "RSA-4096" => rsa4096::text_decrypt(entry, payload),
         "X25519" => x25519::text_decrypt(entry, payload),
+        "ML-KEM-768" => mlkem768::text_decrypt(entry, payload),
         _ => Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string()),
     }
 }
@@ -167,6 +185,7 @@ pub fn file_encrypt_prepare(
         EncryptKeyMaterial::Symmetric { alg, key_32 } => match alg.as_str() {
             "AES-256" => aes256::file_encrypt_prepare(key_32, meta),
             "ChaCha20" => chacha20::file_encrypt_prepare(key_32, meta),
+            "ML-KEM-768" => mlkem768::file_encrypt_prepare(key_32, meta),
             _ => Err(format!("不支持的数据算法：{alg}")),
         },
         EncryptKeyMaterial::RsaPublic { alg, public_pem } => match alg.as_str() {
@@ -193,6 +212,10 @@ pub fn file_decrypt_unwrap_data_key(
         FileCipherHeader::SymmetricStream { alg, .. } => match (alg.as_str(), key) {
             ("AES-256", DecryptKeyMaterial::Symmetric { key_32, .. }) => Ok(key_32),
             ("ChaCha20", DecryptKeyMaterial::Symmetric { key_32, .. }) => Ok(key_32),
+            _ => Err(crate::file_crypto::DECRYPT_FAIL_MSG.to_string()),
+        },
+        FileCipherHeader::SessionStream { alg, .. } => match (alg.as_str(), key) {
+            ("ML-KEM-768", DecryptKeyMaterial::Symmetric { key_32, .. }) => Ok(key_32),
             _ => Err(crate::file_crypto::DECRYPT_FAIL_MSG.to_string()),
         },
         FileCipherHeader::HybridRsaStream {

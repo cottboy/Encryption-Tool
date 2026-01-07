@@ -65,6 +65,8 @@ pub struct AlgorithmKeyPartSpec {
     pub id: &'static str,
     /// part encoding：用于前端提示与后端解析（base64/pem/hex/utf8）。
     pub encoding: keystore::KeyPartEncoding,
+    /// 是否为隐藏字段：前端不渲染输入框，但仍参与 required 判定与持久化。
+    pub hidden: bool,
     /// label 的翻译 key。
     pub label_key: &'static str,
     /// placeholder 的翻译 key（可选）。
@@ -107,6 +109,7 @@ pub fn get_algorithm_form_specs() -> Vec<AlgorithmFormSpec> {
                 .map(|p| AlgorithmKeyPartSpec {
                     id: p.id,
                     encoding: p.encoding,
+                    hidden: p.hidden,
                     label_key: p.label_key,
                     placeholder_key: p.placeholder_key,
                     rows: p.rows,
@@ -164,9 +167,7 @@ pub struct KeyEntryPublic {
 /// 获取密钥库状态：
 /// - 若首次启动没有密钥库文件，会自动创建一个明文空库。
 #[tauri::command]
-pub fn keystore_status(
-    app: AppHandle,
-) -> Result<keystore::KeyStoreStatus, String> {
+pub fn keystore_status(app: AppHandle) -> Result<keystore::KeyStoreStatus, String> {
     keystore::ensure_exists(&app).map_err(|e| e.to_string())?;
     keystore::status(&app).map_err(|e| e.to_string())
 }
@@ -175,9 +176,7 @@ pub fn keystore_status(
 /// - 未加密：直接读取文件
 /// - 已加密：必须先解锁（从 state 读取）
 #[tauri::command]
-pub fn keystore_list_entries(
-    app: AppHandle,
-) -> Result<Vec<KeyEntryPublic>, String> {
+pub fn keystore_list_entries(app: AppHandle) -> Result<Vec<KeyEntryPublic>, String> {
     keystore::ensure_exists(&app).map_err(|e| e.to_string())?;
     let plain = keystore::read_plain(&app).map_err(|e| e.to_string())?;
 
@@ -275,6 +274,30 @@ pub fn keystore_generate_key(
                             id: "x25519_public_b64".to_string(),
                             encoding: keystore::KeyPartEncoding::Base64,
                             value: public_b64,
+                        },
+                    ],
+                }
+            }
+            "ML-KEM-768" => {
+                // ML-KEM-768：生成密钥对（私钥 + 公钥）。
+                // 会话共享密钥 ss 由后续“封装/解封”动作写入（不在前端展示）。
+                let (secret_b64, public_b64) =
+                    crate::crypto_algorithms::generate_mlkem768_keypair_b64();
+
+                keystore::KeyEntry {
+                    id: id.clone(),
+                    label: entry_label.clone(),
+                    key_type: "ML-KEM-768".to_string(),
+                    parts: vec![
+                        keystore::KeyPart {
+                            id: "mlkem768_public_b64".to_string(),
+                            encoding: keystore::KeyPartEncoding::Base64,
+                            value: public_b64,
+                        },
+                        keystore::KeyPart {
+                            id: "mlkem768_secret_b64".to_string(),
+                            encoding: keystore::KeyPartEncoding::Base64,
+                            value: secret_b64,
                         },
                     ],
                 }
@@ -480,10 +503,7 @@ pub struct ExportKeyRequest {
 }
 
 #[tauri::command]
-pub fn keystore_export_key(
-    app: AppHandle,
-    req: ExportKeyRequest,
-) -> Result<(), String> {
+pub fn keystore_export_key(app: AppHandle, req: ExportKeyRequest) -> Result<(), String> {
     let id = req.id.trim();
     if id.is_empty() {
         return Err("id 不能为空".to_string());
@@ -541,10 +561,7 @@ pub struct DeleteKeyRequest {
 }
 
 #[tauri::command]
-pub fn keystore_delete_key(
-    app: AppHandle,
-    req: DeleteKeyRequest,
-) -> Result<(), String> {
+pub fn keystore_delete_key(app: AppHandle, req: DeleteKeyRequest) -> Result<(), String> {
     let id = req.id.trim();
     if id.is_empty() {
         return Err("id 不能为空".to_string());
@@ -782,13 +799,87 @@ pub fn keystore_update_key(
 }
 
 // =====================
+// ML-KEM-768：生成封装密钥（ct）并写入共享密钥（ss）
+// =====================
+
+#[derive(Debug, Deserialize)]
+pub struct MlKem768GenerateEncapsulationRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MlKem768GenerateEncapsulationResponse {
+    /// 封装密钥（Base64，实际为封装密文 ct）
+    pub ct_b64: String,
+}
+
+fn upsert_part(entry: &mut keystore::KeyEntry, part: keystore::KeyPart) {
+    if let Some(existing) = entry.parts.iter_mut().find(|p| p.id == part.id) {
+        *existing = part;
+        return;
+    }
+    entry.parts.push(part);
+}
+
+#[tauri::command]
+pub fn mlkem768_generate_encapsulation(
+    app: AppHandle,
+    req: MlKem768GenerateEncapsulationRequest,
+) -> Result<MlKem768GenerateEncapsulationResponse, String> {
+    let id = req.id.trim();
+    if id.is_empty() {
+        return Err("id 不能为空".to_string());
+    }
+
+    with_plain_mutation(&app, |plain| {
+        let entry = plain
+            .key_entries
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or_else(|| "未找到该密钥".to_string())?;
+
+        if entry.key_type != "ML-KEM-768" {
+            return Err("该密钥不是 ML-KEM-768 类型".to_string());
+        }
+
+        let pub_part = keystore::find_part(entry, "mlkem768_public_b64")
+            .ok_or_else(|| "ML-KEM-768 缺少公钥：请先填写/导入公钥".to_string())?;
+        if pub_part.encoding != keystore::KeyPartEncoding::Base64 {
+            return Err("mlkem768_public_b64 的 encoding 必须为 base64".to_string());
+        }
+
+        let (ct_b64, ss_32) =
+            crate::crypto_algorithms::mlkem768_encapsulate_to_public_b64(&pub_part.value)?;
+
+        upsert_part(
+            entry,
+            keystore::KeyPart {
+                id: "mlkem768_ct_b64".to_string(),
+                encoding: keystore::KeyPartEncoding::Base64,
+                value: ct_b64.clone(),
+            },
+        );
+        upsert_part(
+            entry,
+            keystore::KeyPart {
+                id: "mlkem768_shared_b64".to_string(),
+                encoding: keystore::KeyPartEncoding::Base64,
+                value: base64::engine::general_purpose::STANDARD.encode(ss_32.as_ref()),
+            },
+        );
+
+        Ok(MlKem768GenerateEncapsulationResponse { ct_b64 })
+    })
+}
+
+// =====================
 // 文本加密/解密（后端执行）
 // =====================
 
 /// 文本加密请求：前端只传“算法 + 密钥 + 明文”，加密全部在后端完成。
 #[derive(Debug, Deserialize)]
 pub struct TextEncryptRequest {
-    /// 选择的算法：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519
+    /// 选择的算法：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519 / ML-KEM-768
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
@@ -799,7 +890,7 @@ pub struct TextEncryptRequest {
 /// 文本解密请求：前端只传“算法 + 密钥 + 密文(JSON)”，解密全部在后端完成。
 #[derive(Debug, Deserialize)]
 pub struct TextDecryptRequest {
-    /// 选择的算法：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519
+    /// 选择的算法：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519 / ML-KEM-768
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
@@ -966,6 +1057,29 @@ fn resolve_file_encrypt_key(
                 key_32,
             })
         }
+        "ML-KEM-768" => {
+            // 会话密钥：由 ML-KEM-768 封装/解封建立（32 字节 Base64），这里直接作为数据侧 key 使用。
+            let part = keystore::find_part(entry, "mlkem768_shared_b64").ok_or_else(|| {
+                "ML-KEM-768 尚未建立会话：请先生成/导入封装密钥并保存".to_string()
+            })?;
+            if part.encoding != keystore::KeyPartEncoding::Base64 {
+                return Err("mlkem768_shared_b64 的 encoding 必须为 base64".to_string());
+            }
+
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(part.value.trim())
+                .map_err(|_| "共享密钥 Base64 解码失败".to_string())?;
+            if bytes.len() != 32 {
+                return Err("共享密钥必须为 32 字节".to_string());
+            }
+            let mut key_32 = Zeroizing::new([0u8; 32]);
+            key_32.copy_from_slice(&bytes);
+
+            Ok(file_crypto::EncryptKeyMaterial::Symmetric {
+                alg: entry.key_type.clone(),
+                key_32,
+            })
+        }
         "RSA-2048" | "RSA-4096" => {
             let part = keystore::find_part(entry, "rsa_public_pem")
                 .ok_or_else(|| "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥".to_string())?;
@@ -1036,6 +1150,28 @@ fn resolve_file_decrypt_key(
                 .map_err(|_| "对称密钥 Base64 解码失败".to_string())?;
             if bytes.len() != 32 {
                 return Err("对称密钥必须为 32 字节".to_string());
+            }
+            let mut key_32 = Zeroizing::new([0u8; 32]);
+            key_32.copy_from_slice(&bytes);
+
+            Ok(file_crypto::DecryptKeyMaterial::Symmetric {
+                alg: entry.key_type.clone(),
+                key_32,
+            })
+        }
+        "ML-KEM-768" => {
+            let part = keystore::find_part(entry, "mlkem768_shared_b64").ok_or_else(|| {
+                "ML-KEM-768 尚未建立会话：请先生成/导入封装密钥并保存".to_string()
+            })?;
+            if part.encoding != keystore::KeyPartEncoding::Base64 {
+                return Err("mlkem768_shared_b64 的 encoding 必须为 base64".to_string());
+            }
+
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(part.value.trim())
+                .map_err(|_| "共享密钥 Base64 解码失败".to_string())?;
+            if bytes.len() != 32 {
+                return Err("共享密钥必须为 32 字节".to_string());
             }
             let mut key_32 = Zeroizing::new([0u8; 32]);
             key_32.copy_from_slice(&bytes);

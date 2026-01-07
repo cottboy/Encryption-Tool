@@ -35,6 +35,7 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
         KeyPartSpec {
             id: "x25519_public_b64",
             encoding: keystore::KeyPartEncoding::Base64,
+            hidden: false,
             label_key: "keys.ui.preview.publicB64",
             placeholder_key: Some("keys.ui.placeholders.x25519PublicB64"),
             rows: 4,
@@ -45,6 +46,7 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
         KeyPartSpec {
             id: "x25519_secret_b64",
             encoding: keystore::KeyPartEncoding::Base64,
+            hidden: false,
             label_key: "keys.ui.preview.secretB64",
             placeholder_key: Some("keys.ui.placeholders.x25519SecretB64"),
             rows: 4,

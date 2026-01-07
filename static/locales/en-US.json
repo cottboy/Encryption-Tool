@@ -32,8 +32,12 @@
       "emptyKeys": "No keys yet.",
       "generateTitle": "Generate",
       "importTitle": "Import",
+      "generateEncapsulation": "Generate encapsulation",
       "delete": "Delete",
       "placeholders": {
+        "mlkem768PublicB64": "Enter an ML-KEM-768 public key (Base64)",
+        "mlkem768SecretB64": "Enter an ML-KEM-768 private key (Base64)",
+        "mlkem768CtB64": "Enter/paste the encapsulation (Base64, ciphertext ct)",
         "symmetricB64": "Enter a Base64-encoded 32-byte key…",
         "x25519PublicB64": "Enter a Base64-encoded 32-byte public key… (optional)",
         "x25519SecretB64": "Enter a Base64-encoded 32-byte private key… (optional)",
@@ -41,6 +45,9 @@
         "rsaPrivatePem": "Paste RSA private key PEM (optional)…"
       },
       "hints": {
+        "mlkem768Public": "A generates a keypair and sends the public key to B. B pastes it and clicks “Generate encapsulation”.",
+        "mlkem768Secret": "A keeps the private key; do not share it.",
+        "mlkem768Ct": "B sends the encapsulation to A. A pastes it and clicks OK to save and establish the session (shared key is stored in keystore)."
       },
       "materialSuffix": {
         "rsaPublicOnly": " (public only)",
@@ -58,7 +65,9 @@
         "privatePem": "Private key (PEM)",
         "publicB64": "Public (Base64)",
         "secretB64": "Secret (Base64)",
-        "symmetricKey": "Key (Base64)"
+        "symmetricKey": "Key (Base64)",
+        "mlkem768CiphertextB64": "Encapsulation (Base64)",
+        "mlkem768SharedB64": "Shared key (Base64)"
       },
       "importNameLabel": "Key name (required)"
     }
@@ -80,7 +89,8 @@
         "inputRequired": "Please enter text",
         "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA key that includes a private key.",
         "rsaNeedPublic": "RSA encryption requires a public key. Please select an RSA key that includes a public key.",
-        "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key."
+        "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key.",
+        "mlkemNeedSession": "ML-KEM-768 requires an established session (shared key stored in keystore)."
       }
     }
   },
@@ -97,7 +107,8 @@
         "selectFile": "Please select a file",
         "rsaNeedPublic": "RSA encryption requires a public key. Please select an RSA key that includes a public key.",
         "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA key that includes a private key.",
-        "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key."
+        "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key.",
+        "mlkemNeedSession": "ML-KEM-768 requires an established session (shared key stored in keystore)."
       },
       "msg": {
         "startedEncrypt": "Encryption started. Output: {path}",

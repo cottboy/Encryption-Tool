@@ -32,15 +32,22 @@
       "emptyKeys": "当前还没有密钥。",
       "generateTitle": "生成密钥",
       "importTitle": "导入密钥",
+      "generateEncapsulation": "生成封装密钥",
       "delete": "删除",
       "placeholders": {
         "symmetricB64": "请输入 Base64 编码的 32 字节密钥…",
         "x25519PublicB64": "请输入 Base64 编码的 32 字节公钥…（可选）",
         "x25519SecretB64": "请输入 Base64 编码的 32 字节私钥…（可选）",
+        "mlkem768PublicB64": "请输入 ML-KEM-768 公钥（Base64）…",
+        "mlkem768SecretB64": "请输入 ML-KEM-768 私钥（Base64）…",
+        "mlkem768CtB64": "请输入/粘贴 封装密钥（Base64，实际为封装密文 ct）…",
         "rsaPublicPem": "粘贴 RSA 公钥 PEM（可选）…",
         "rsaPrivatePem": "粘贴 RSA 私钥 PEM（可选）…"
       },
       "hints": {
+        "mlkem768Public": "A 端生成密钥对后，把公钥发给 B；B 端填入公钥后点击“生成封装密钥”。",
+        "mlkem768Secret": "A 端生成并保存私钥；不要泄露给对方。",
+        "mlkem768Ct": "B 端生成封装密钥后发给 A；A 端填入后点击确定保存以建立会话（共享密钥会写入密钥库）。"
       },
       "materialSuffix": {
         "rsaPublicOnly": "仅公钥",
@@ -58,7 +65,9 @@
         "privatePem": "私钥（PEM）",
         "publicB64": "公钥（Base64）",
         "secretB64": "私钥（Base64）",
-        "symmetricKey": "密钥（Base64）"
+        "symmetricKey": "密钥（Base64）",
+        "mlkem768CiphertextB64": "封装密钥（Base64）",
+        "mlkem768SharedB64": "共享密钥（Base64）"
       },
       "importNameLabel": "密钥名称（必填）"
     }
@@ -80,7 +89,8 @@
         "inputRequired": "请输入要处理的文本",
         "rsaNeedPrivate": "RSA 解密需要私钥，请选择包含私钥的 RSA 密钥",
         "rsaNeedPublic": "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥",
-        "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥"
+        "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥",
+        "mlkemNeedSession": "ML-KEM-768 加密/解密需要先建立会话（共享密钥已保存到密钥库）"
       }
     }
   },
@@ -97,7 +107,8 @@
         "selectFile": "请选择文件",
         "rsaNeedPublic": "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥",
         "rsaNeedPrivate": "RSA 解密需要私钥，请选择包含私钥的 RSA 密钥",
-        "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥"
+        "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥",
+        "mlkemNeedSession": "ML-KEM-768 加密/解密需要先建立会话（共享密钥已保存到密钥库）"
       },
       "msg": {
         "startedEncrypt": "已启动加密任务，输出：{path}",

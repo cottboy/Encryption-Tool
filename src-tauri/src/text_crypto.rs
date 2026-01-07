@@ -48,10 +48,7 @@ pub(crate) enum TextCipherPayload {
     },
 
     /// RSA-OAEP 直接加密（仅当明文较短时可用）
-    RsaOaep {
-        alg: String,
-        ciphertext_b64: String,
-    },
+    RsaOaep { alg: String, ciphertext_b64: String },
 
     /// RSA 混合加密：
     /// - wrapped_key_b64：RSA-OAEP 包裹的 32 字节会话密钥
@@ -72,6 +69,14 @@ pub(crate) enum TextCipherPayload {
         data_alg: String,
         nonce_b64: String,
         eph_public_b64: String,
+        ciphertext_b64: String,
+    },
+
+    /// 会话密钥 + AEAD（当前用于 ML-KEM-768 一次封装建立会话后复用会话密钥）。
+    SessionAead {
+        alg: String,
+        data_alg: String,
+        nonce_b64: String,
         ciphertext_b64: String,
     },
 }

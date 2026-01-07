@@ -79,6 +79,18 @@ pub enum FileCipherHeader {
         nonce_prefix_b64: String,
     },
 
+    /// 会话分块加密：由“外部会话密钥（32字节）”直接作为数据侧 key。
+    /// - 当前用于：ML-KEM-768 一次封装建立会话后，对文本/文件复用同一把会话密钥。
+    SessionStream {
+        alg: String,
+        data_alg: String,
+        chunk_size: u32,
+        file_size: u64,
+        original_file_name: String,
+        original_extension: String,
+        nonce_prefix_b64: String,
+    },
+
     /// RSA 混合分块加密：RSA 包裹会话密钥 + 数据流对称分块
     HybridRsaStream {
         alg: String,
@@ -111,6 +123,7 @@ impl FileCipherHeader {
     pub fn data_alg(&self) -> &str {
         match self {
             FileCipherHeader::SymmetricStream { alg, .. } => alg,
+            FileCipherHeader::SessionStream { data_alg, .. } => data_alg,
             FileCipherHeader::HybridRsaStream { data_alg, .. } => data_alg,
             FileCipherHeader::HybridX25519Stream { data_alg, .. } => data_alg,
         }
@@ -120,6 +133,7 @@ impl FileCipherHeader {
     pub fn file_size(&self) -> u64 {
         match self {
             FileCipherHeader::SymmetricStream { file_size, .. } => *file_size,
+            FileCipherHeader::SessionStream { file_size, .. } => *file_size,
             FileCipherHeader::HybridRsaStream { file_size, .. } => *file_size,
             FileCipherHeader::HybridX25519Stream { file_size, .. } => *file_size,
         }
@@ -129,6 +143,7 @@ impl FileCipherHeader {
     pub fn chunk_size(&self) -> u32 {
         match self {
             FileCipherHeader::SymmetricStream { chunk_size, .. } => *chunk_size,
+            FileCipherHeader::SessionStream { chunk_size, .. } => *chunk_size,
             FileCipherHeader::HybridRsaStream { chunk_size, .. } => *chunk_size,
             FileCipherHeader::HybridX25519Stream { chunk_size, .. } => *chunk_size,
         }
@@ -138,6 +153,9 @@ impl FileCipherHeader {
     pub fn original_file_name(&self) -> &str {
         match self {
             FileCipherHeader::SymmetricStream {
+                original_file_name, ..
+            } => original_file_name,
+            FileCipherHeader::SessionStream {
                 original_file_name, ..
             } => original_file_name,
             FileCipherHeader::HybridRsaStream {
@@ -154,6 +172,9 @@ impl FileCipherHeader {
     pub fn nonce_prefix(&self) -> Result<[u8; 8], String> {
         let s = match self {
             FileCipherHeader::SymmetricStream {
+                nonce_prefix_b64, ..
+            } => nonce_prefix_b64,
+            FileCipherHeader::SessionStream {
                 nonce_prefix_b64, ..
             } => nonce_prefix_b64,
             FileCipherHeader::HybridRsaStream {
@@ -478,6 +499,7 @@ pub fn decrypt_file_stream(
         // ========== 算法匹配校验 ==========
         let file_alg = match &header {
             FileCipherHeader::SymmetricStream { alg, .. } => alg.as_str(),
+            FileCipherHeader::SessionStream { alg, .. } => alg.as_str(),
             FileCipherHeader::HybridRsaStream { alg, .. } => alg.as_str(),
             FileCipherHeader::HybridX25519Stream { alg, .. } => alg.as_str(),
         };

@@ -32,6 +32,7 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
         KeyPartSpec {
             id: "symmetric_key_b64",
             encoding: keystore::KeyPartEncoding::Base64,
+            hidden: false,
             label_key: "keys.ui.preview.symmetricKey",
             placeholder_key: Some("keys.ui.placeholders.symmetricB64"),
             rows: 5,

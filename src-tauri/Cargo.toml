@@ -67,3 +67,10 @@ aes-gcm = { version = "0.10", features = ["std"] }
 sha2 = "0.10"
 # - HKDF：X25519 共享密钥 → 会话密钥派生
 hkdf = "0.12"
+
+# =============
+# 后量子（KEM）
+# =============
+# ML-KEM-768：用于一次封装建立会话密钥（ss），再用 AES-256-GCM 加/解密数据。
+pqcrypto-mlkem = "0.1.1"
+pqcrypto-traits = { version = "0.3.5", features = ["std"] }

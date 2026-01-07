@@ -42,6 +42,8 @@ pub fn run() {
             commands::keystore_export_key,
             commands::keystore_delete_key,
             commands::keystore_update_key,
+            // ML-KEM-768：封装（生成封装密钥 + 写入共享密钥）
+            commands::mlkem768_generate_encapsulation,
             // 文本加密/解密（后端执行）
             commands::text_encrypt,
             commands::text_decrypt,

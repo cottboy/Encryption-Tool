@@ -37,6 +37,7 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
         KeyPartSpec {
             id: "rsa_public_pem",
             encoding: keystore::KeyPartEncoding::Pem,
+            hidden: false,
             label_key: "keys.ui.preview.publicPem",
             placeholder_key: Some("keys.ui.placeholders.rsaPublicPem"),
             rows: 8,
@@ -47,6 +48,7 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
         KeyPartSpec {
             id: "rsa_private_pem",
             encoding: keystore::KeyPartEncoding::Pem,
+            hidden: false,
             label_key: "keys.ui.preview.privatePem",
             placeholder_key: Some("keys.ui.placeholders.rsaPrivatePem"),
             rows: 10,
@@ -320,8 +322,8 @@ fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPar
             return Err("rsa_public_pem 的 encoding 必须为 pem".to_string());
         }
 
-        let pub_key =
-            RsaPublicKey::from_public_key_pem(p.value.trim()).map_err(|e| format!("RSA 公钥解析失败：{e}"))?;
+        let pub_key = RsaPublicKey::from_public_key_pem(p.value.trim())
+            .map_err(|e| format!("RSA 公钥解析失败：{e}"))?;
 
         if pub_key.n().bits() as usize != 2048 {
             return Err(format!(
