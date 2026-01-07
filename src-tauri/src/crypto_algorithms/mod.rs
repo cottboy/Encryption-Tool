@@ -108,11 +108,11 @@ pub fn spec_by_id(id: &str) -> Option<&'static AlgorithmSpec> {
 /// 生成 RSA 密钥对（根据算法 id 选择位数）。
 ///
 /// 说明：
-/// - RSA2048 与 RSA4096 的区别只在于密钥位数，因此这里做一次分发即可。
+/// - RSA-2048 与 RSA-4096 的区别只在于密钥位数，因此这里做一次分发即可。
 pub fn generate_rsa_keypair_pem(algorithm: &str) -> Result<(String, String), String> {
     match algorithm.trim() {
-        "RSA2048" => rsa2048::generate_keypair_pem(),
-        "RSA4096" => rsa4096::generate_keypair_pem(),
+        "RSA-2048" => rsa2048::generate_keypair_pem(),
+        "RSA-4096" => rsa4096::generate_keypair_pem(),
         _ => Err(format!("不支持的 RSA 算法：{algorithm}")),
     }
 }
@@ -131,8 +131,8 @@ pub fn text_encrypt(
     match algorithm.trim() {
         "AES-256" => aes256::text_encrypt(entry, plaintext),
         "ChaCha20" => chacha20::text_encrypt(entry, plaintext),
-        "RSA2048" => rsa2048::text_encrypt(entry, plaintext),
-        "RSA4096" => rsa4096::text_encrypt(entry, plaintext),
+        "RSA-2048" => rsa2048::text_encrypt(entry, plaintext),
+        "RSA-4096" => rsa4096::text_encrypt(entry, plaintext),
         "X25519" => x25519::text_encrypt(entry, plaintext),
         _ => Err("不支持的算法".to_string()),
     }
@@ -147,8 +147,8 @@ pub fn text_decrypt(
     match algorithm.trim() {
         "AES-256" => aes256::text_decrypt(entry, payload),
         "ChaCha20" => chacha20::text_decrypt(entry, payload),
-        "RSA2048" => rsa2048::text_decrypt(entry, payload),
-        "RSA4096" => rsa4096::text_decrypt(entry, payload),
+        "RSA-2048" => rsa2048::text_decrypt(entry, payload),
+        "RSA-4096" => rsa4096::text_decrypt(entry, payload),
         "X25519" => x25519::text_decrypt(entry, payload),
         _ => Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string()),
     }
@@ -170,8 +170,8 @@ pub fn file_encrypt_prepare(
             _ => Err(format!("不支持的数据算法：{alg}")),
         },
         EncryptKeyMaterial::RsaPublic { alg, public_pem } => match alg.as_str() {
-            "RSA2048" => rsa2048::file_encrypt_prepare(public_pem, meta),
-            "RSA4096" => rsa4096::file_encrypt_prepare(public_pem, meta),
+            "RSA-2048" => rsa2048::file_encrypt_prepare(public_pem, meta),
+            "RSA-4096" => rsa4096::file_encrypt_prepare(public_pem, meta),
             _ => Err(format!("不支持的算法：{alg}")),
         },
         EncryptKeyMaterial::X25519Public { public_32 } => {
@@ -201,8 +201,8 @@ pub fn file_decrypt_unwrap_data_key(
             ..
         } => match key {
             DecryptKeyMaterial::RsaPrivate { private_pem } => match alg.as_str() {
-                "RSA2048" => rsa2048::file_decrypt_unwrap_data_key(wrapped_key_b64, &private_pem),
-                "RSA4096" => rsa4096::file_decrypt_unwrap_data_key(wrapped_key_b64, &private_pem),
+                "RSA-2048" => rsa2048::file_decrypt_unwrap_data_key(wrapped_key_b64, &private_pem),
+                "RSA-4096" => rsa4096::file_decrypt_unwrap_data_key(wrapped_key_b64, &private_pem),
                 _ => Err(crate::file_crypto::DECRYPT_FAIL_MSG.to_string()),
             },
             _ => Err(crate::file_crypto::DECRYPT_FAIL_MSG.to_string()),

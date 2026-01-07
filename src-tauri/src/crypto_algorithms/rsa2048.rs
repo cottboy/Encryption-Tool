@@ -1,12 +1,12 @@
 /*
-  RSA2048 算法实现（文本 + 文件）。
+  RSA-2048 算法实现（文本 + 文件）。
 
   用户约束：
-  - RSA2048 / RSA4096 视为两种“完全独立的算法文件”
+  - RSA-2048 / RSA-4096 视为两种“完全独立的算法文件”
   - 不引入 rsa_common.rs 之类的共享实现文件
 
   说明：
-  - RSA2048 与 RSA4096 的“加解密逻辑”天然相同，但为了让后续维护更直观，
+  - RSA-2048 与 RSA-4096 的“加解密逻辑”天然相同，但为了让后续维护更直观，
     我们在两个文件里各自保留一份完整实现（避免跨文件跳转）。
 */
 
@@ -28,7 +28,7 @@ use crate::keystore;
 use crate::text_crypto::TextCipherPayload;
 
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
-    id: "RSA2048",
+    id: "RSA-2048",
     category: AlgorithmCategory::Asymmetric,
     encrypt_needs: "加密需要公钥（PEM）；解密需要私钥（PEM）；长文本/文件走混合加密",
     decrypt_needs: "解密需要私钥（PEM）",
@@ -91,7 +91,7 @@ fn parse_rsa_private(entry: &keystore::KeyEntry) -> Result<RsaPrivateKey, String
         .map_err(|_| crate::text_crypto::DECRYPT_FAIL_MSG.to_string())
 }
 
-/// 生成 RSA2048 密钥对（PKCS8 私钥 PEM + SPKI 公钥 PEM）。
+/// 生成 RSA-2048 密钥对（PKCS8 私钥 PEM + SPKI 公钥 PEM）。
 pub fn generate_keypair_pem() -> Result<(String, String), String> {
     let private = RsaPrivateKey::new(&mut OsRng, 2048).map_err(|e| format!("RSA 生成失败：{e}"))?;
     let public = RsaPublicKey::from(&private);
@@ -125,7 +125,7 @@ pub fn text_encrypt(
 
         Ok((
             TextCipherPayload::RsaOaep {
-                alg: "RSA2048".to_string(),
+                alg: "RSA-2048".to_string(),
                 ciphertext_b64: B64.encode(ct),
             },
             false,
@@ -145,7 +145,7 @@ pub fn text_encrypt(
 
         Ok((
             TextCipherPayload::HybridRsa {
-                alg: "RSA2048".to_string(),
+                alg: "RSA-2048".to_string(),
                 data_alg: "AES-256".to_string(),
                 nonce_b64: B64.encode(nonce),
                 wrapped_key_b64: B64.encode(wrapped),
@@ -167,7 +167,7 @@ pub fn text_decrypt(
             ciphertext_b64,
             ..
         } => {
-            if alg != "RSA2048" {
+            if alg != "RSA-2048" {
                 return Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string());
             }
             let priv_key = parse_rsa_private(entry)?;
@@ -186,7 +186,7 @@ pub fn text_decrypt(
             ciphertext_b64,
             ..
         } => {
-            if alg != "RSA2048" {
+            if alg != "RSA-2048" {
                 return Err(crate::text_crypto::DECRYPT_FAIL_MSG.to_string());
             }
             if data_alg != "AES-256" {
@@ -233,7 +233,7 @@ pub fn file_encrypt_prepare(
         .map_err(|e| format!("RSA 包裹会话密钥失败：{e}"))?;
 
     let header = FileCipherHeader::HybridRsaStream {
-        alg: "RSA2048".to_string(),
+        alg: "RSA-2048".to_string(),
         data_alg: "AES-256".to_string(),
         chunk_size: meta.chunk_size,
         file_size: meta.file_size,
@@ -267,7 +267,7 @@ pub fn file_decrypt_unwrap_data_key(
     Ok(out)
 }
 
-/// 规范化并校验“导入/编辑保存”提交的 parts（RSA2048）。
+/// 规范化并校验“导入/编辑保存”提交的 parts（RSA-2048）。
 ///
 /// 支持的输入：
 /// - 仅公钥：rsa_public_pem
@@ -283,10 +283,10 @@ fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPar
         return Err("RSA 至少需要填写公钥或私钥".to_string());
     }
 
-    // 防御：RSA2048 不接受额外字段。
+    // 防御：RSA-2048 不接受额外字段。
     if !map.is_empty() {
         let extra = map.keys().cloned().collect::<Vec<_>>().join(", ");
-        return Err(format!("RSA2048 不支持的字段：{extra}"));
+        return Err(format!("RSA-2048 不支持的字段：{extra}"));
     }
 
     let private_norm = if let Some(p) = private_in {

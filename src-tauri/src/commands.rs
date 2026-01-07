@@ -6,7 +6,7 @@
 
   本阶段命令重点：
   - 单一密钥库（一个 keystore.json）
-  - 支持密钥生成/导入/导出：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
+  - 支持密钥生成/导入/导出：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519
   - 说明：本项目已移除“应用锁/密钥库加密”，密钥库仅以明文 JSON 存储
 */
 
@@ -151,7 +151,7 @@ pub struct KeyEntryPublic {
     /// 用户可读名称：导入/生成时由用户设置。
     pub label: String,
 
-    /// 密钥类型（算法）：例如 AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519。
+    /// 密钥类型（算法）：例如 AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519。
     pub key_type: String,
 
     /// 当前条目包含哪些 parts（只返回 id，不返回 value）。
@@ -279,8 +279,8 @@ pub fn keystore_generate_key(
                     ],
                 }
             }
-            "RSA2048" | "RSA4096" => {
-                // RSA2048 / RSA4096 生成逻辑集中在 crypto_algorithms（两种算法分别一个文件）。
+            "RSA-2048" | "RSA-4096" => {
+                // RSA-2048 / RSA-4096 生成逻辑集中在 crypto_algorithms（两种算法分别一个文件）。
                 let (private_pem, public_pem) =
                     crate::crypto_algorithms::generate_rsa_keypair_pem(key_type)?;
 
@@ -419,7 +419,7 @@ pub fn keystore_import_key(
                 }
                 out
             }
-            "RSA2048" | "RSA4096" => {
+            "RSA-2048" | "RSA-4096" => {
                 // 文件导入：这里只做“公钥/私钥”分类，不在这里解析/校验位数；
                 // 具体解析、位数校验、PEM 规范化交给算法模块（normalize_parts_for_upsert）。
                 let trimmed = text.trim();
@@ -503,10 +503,10 @@ pub fn keystore_export_key(
         ("AES-256" | "ChaCha20", "key_b64") => keystore::find_part(entry, "symmetric_key_b64")
             .map(|p| p.value.clone())
             .ok_or_else(|| "该对称密钥条目缺少 symmetric_key_b64".to_string())?,
-        ("RSA2048" | "RSA4096", "private_pem") => keystore::find_part(entry, "rsa_private_pem")
+        ("RSA-2048" | "RSA-4096", "private_pem") => keystore::find_part(entry, "rsa_private_pem")
             .map(|p| p.value.clone())
             .ok_or_else(|| "该 RSA 条目缺少私钥，无法导出私钥".to_string())?,
-        ("RSA2048" | "RSA4096", "public_pem") => keystore::find_part(entry, "rsa_public_pem")
+        ("RSA-2048" | "RSA-4096", "public_pem") => keystore::find_part(entry, "rsa_public_pem")
             .map(|p| p.value.clone())
             .ok_or_else(|| "该 RSA 条目缺少公钥，无法导出公钥".to_string())?,
         ("X25519", "public_b64") => keystore::find_part(entry, "x25519_public_b64")
@@ -788,7 +788,7 @@ pub fn keystore_update_key(
 /// 文本加密请求：前端只传“算法 + 密钥 + 明文”，加密全部在后端完成。
 #[derive(Debug, Deserialize)]
 pub struct TextEncryptRequest {
-    /// 选择的算法：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
+    /// 选择的算法：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
@@ -799,7 +799,7 @@ pub struct TextEncryptRequest {
 /// 文本解密请求：前端只传“算法 + 密钥 + 密文(JSON)”，解密全部在后端完成。
 #[derive(Debug, Deserialize)]
 pub struct TextDecryptRequest {
-    /// 选择的算法：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
+    /// 选择的算法：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519
     pub algorithm: String,
     /// 密钥库条目 id
     pub key_id: String,
@@ -966,7 +966,7 @@ fn resolve_file_encrypt_key(
                 key_32,
             })
         }
-        "RSA2048" | "RSA4096" => {
+        "RSA-2048" | "RSA-4096" => {
             let part = keystore::find_part(entry, "rsa_public_pem")
                 .ok_or_else(|| "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥".to_string())?;
             if part.encoding != keystore::KeyPartEncoding::Pem {
@@ -1045,7 +1045,7 @@ fn resolve_file_decrypt_key(
                 key_32,
             })
         }
-        "RSA2048" | "RSA4096" => {
+        "RSA-2048" | "RSA-4096" => {
             let part = keystore::find_part(entry, "rsa_private_pem")
                 .ok_or_else(|| "RSA 解密需要私钥，请选择包含私钥的 RSA 密钥".to_string())?;
             if part.encoding != keystore::KeyPartEncoding::Pem {

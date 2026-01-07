@@ -126,7 +126,7 @@
 
 
   function isRsaFamily(algo: string): boolean {
-    return algo === "RSA2048" || algo === "RSA4096";
+    return algo === "RSA-2048" || algo === "RSA-4096";
   }
 
   function filteredEntries(): KeyEntryPublic[] {

@@ -4,7 +4,7 @@
   - 输出格式：使用 JSON “自描述容器”，便于区分不同算法/模式。
   - 安全策略：
     1) 对称加密一律使用 AEAD（认证加密，防篡改）
-    2) RSA（RSA2048 / RSA4096）：优先尝试 OAEP 直接加密；超出长度限制时自动切换为混合加密
+    2) RSA（RSA-2048 / RSA-4096）：优先尝试 OAEP 直接加密；超出长度限制时自动切换为混合加密
     3) X25519：天然走混合加密（协商共享密钥 → 派生会话密钥 → AEAD 加密正文）
   - 错误策略：
     - 解密失败统一提示“密钥错误或数据已损坏”，避免向 UI 泄露过多细节。
@@ -89,7 +89,7 @@ fn find_entry<'a>(
 }
 
 /// 文本加密：
-/// - algorithm：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519
+/// - algorithm：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519
 /// - key_id：密钥库条目 id
 /// - input：明文（UTF-8 字符串）
 pub fn encrypt_text(
@@ -125,7 +125,7 @@ pub fn encrypt_text(
 }
 
 /// 文本解密：
-/// - algorithm：AES-256 / ChaCha20 / RSA2048 / RSA4096 / X25519（用于匹配校验）
+/// - algorithm：AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519（用于匹配校验）
 /// - key_id：密钥库条目 id
 /// - input：密文 JSON 字符串
 pub fn decrypt_text(
