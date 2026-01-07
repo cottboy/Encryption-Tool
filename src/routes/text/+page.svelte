@@ -151,50 +151,6 @@
     return required.every((id) => entry.parts_present.includes(id));
   }
 
-  function materialKindFromParts(keyType: string, partsPresent: string[]): string {
-    const has = (id: string) => partsPresent.includes(id);
-
-    if (keyType === "AES-256" || keyType === "ChaCha20") return "symmetric";
-
-    if (keyType === "RSA2048" || keyType === "RSA4096") {
-      const pub = has("rsa_public_pem");
-      const priv = has("rsa_private_pem");
-      if (pub && priv) return "rsa_full";
-      if (pub) return "rsa_public_only";
-      return "rsa_private_only";
-    }
-
-    if (keyType === "X25519") {
-      const pub = has("x25519_public_b64");
-      const sec = has("x25519_secret_b64");
-      if (pub && sec) return "x25519_full";
-      if (pub) return "x25519_public_only";
-      return "x25519_secret_only";
-    }
-
-    return "";
-  }
-
-  function typeSuffix(materialKind: string): string {
-    // 复用“密钥管理页”的后缀文案，保证全局一致。
-    switch (materialKind) {
-      case "rsa_public_only":
-        return $t("keys.ui.materialSuffix.rsaPublicOnly");
-      case "rsa_private_only":
-        return $t("keys.ui.materialSuffix.rsaPrivateOnly");
-      case "rsa_full":
-        return $t("keys.ui.materialSuffix.rsaFull");
-      case "x25519_public_only":
-        return $t("keys.ui.materialSuffix.x25519PublicOnly");
-      case "x25519_secret_only":
-        return $t("keys.ui.materialSuffix.x25519SecretOnly");
-      case "x25519_full":
-        return $t("keys.ui.materialSuffix.x25519Full");
-      default:
-        return "";
-    }
-  }
-
   // 选择算法后，清空之前的密钥选择（避免残留不匹配的 id）。
   $effect(() => {
     // 仅在算法确实变化时清空（避免初始化阶段造成反复抖动）。
@@ -343,9 +299,14 @@
   }
 
   function keyOptionLabel(e: KeyEntryPublic): string {
-    // 下拉选项附带“仅公钥/仅私钥/完整”，减少用户选错。
-    const kind = materialKindFromParts(e.key_type, e.parts_present);
-    if (kind !== "symmetric") return `${e.label} ${typeSuffix(kind)}`;
+    /*
+      密钥下拉框的显示文本：
+      - 按需求：在“文本加密”页不再在名称后面拼接“完整/仅公钥/仅私钥”等后缀，只展示用户设置的名称。
+      - 重要：这里只改“显示”，不改“逻辑”：
+        - RSA 加密仍需要公钥、RSA 解密仍需要私钥；
+        - X25519 加/解密仍需要同时包含公钥与私钥；
+        - 是否可用由 canEncryptWithSelectedKey/canDecryptWithSelectedKey + 后端校验共同保证。
+    */
     return e.label;
   }
 </script>
