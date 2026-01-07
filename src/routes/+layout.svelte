@@ -35,15 +35,11 @@
     <div class="topbar-inner container">
       <!--
         顶部栏布局（macOS 风格）：
-        - 左：留空（占位，确保中间分段控件始终居中）
-        - 中：主功能分段控件（密钥管理 / 文本加密 / 文件加密）
-        - 右：留空（占位，确保中间分段控件始终居中）
+        - 仅保留中间分段控件（居中）
         说明：
         - 已移除左上角“Encryption Tool”字样；
         - 已移除右上角语言切换，下方 i18n 会按系统语言自动选择。
       -->
-      <div class="topbar-left" aria-hidden="true"></div>
-
       <nav class="tabs" aria-label="主功能标签">
         {#each tabs as tab}
           <a
@@ -54,8 +50,6 @@
           </a>
         {/each}
       </nav>
-
-      <div class="topbar-right" aria-hidden="true"></div>
     </div>
   </header>
 
@@ -81,28 +75,10 @@
 
   .topbar-inner {
     height: 52px;
-    /*
-      macOS 顶部栏常见布局：左右各一组控件，中间主控件居中。
-      使用三列 grid 可以做到“真居中”，不会因为右侧控件宽度变化而偏移。
-    */
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    column-gap: 12px;
-  }
-
-  .topbar-left {
-    justify-self: start;
+    /* 仅保留中间分段控件，用 flex 做居中布局 */
     display: flex;
     align-items: center;
-    min-width: 0;
-  }
-
-  .topbar-right {
-    justify-self: end;
-    display: flex;
-    align-items: center;
-    min-width: 0;
+    justify-content: center;
   }
 
   /*
@@ -113,7 +89,6 @@
     - 位置保持居中，对称一致
   */
   .tabs {
-    justify-self: center;
     display: inline-flex;
     gap: 2px;
     padding: 3px;
