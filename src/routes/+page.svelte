@@ -639,27 +639,27 @@
             }
           }}>{$t("common.ok")}</button>
           <button onclick={() => (showDetail = false)}>{$t("common.cancel")}</button>
-        </div>
 
-        {#if detail && detail.key_type === "ML-KEM-768"}
-          <button onclick={async () => {
-            try {
-              modalMessage = "";
-              if (!detail) return;
-              const id = detail.id;
-              const res = await invoke<MlKem768GenerateEncapsulationResponse>("mlkem768_generate_encapsulation", {
-                req: { id }
-              });
-              // 更新本地展示（封装密钥），并重新拉取详情，确保隐藏的共享密钥也被保留。
-              detail.parts["mlkem768_ct_b64"] = res.ct_b64;
-              await reloadDetail(id);
-              await refresh();
-              notifyKeystoreChanged();
-            } catch (e) {
-              modalMessage = formatError(e);
-            }
-          }}>{$t("keys.ui.generateEncapsulation")}</button>
-        {/if}
+          {#if detail && detail.key_type === "ML-KEM-768"}
+            <button onclick={async () => {
+              try {
+                modalMessage = "";
+                if (!detail) return;
+                const id = detail.id;
+                const res = await invoke<MlKem768GenerateEncapsulationResponse>("mlkem768_generate_encapsulation", {
+                  req: { id }
+                });
+                // 更新本地展示（封装密钥），并重新拉取详情，确保隐藏的共享密钥也被保留。
+                detail.parts["mlkem768_ct_b64"] = res.ct_b64;
+                await reloadDetail(id);
+                await refresh();
+                notifyKeystoreChanged();
+              } catch (e) {
+                modalMessage = formatError(e);
+              }
+            }}>{$t("keys.ui.generateEncapsulation")}</button>
+          {/if}
+        </div>
 
         <button class="danger" onclick={async () => {
           try {
