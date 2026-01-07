@@ -66,7 +66,7 @@
         "mlkem768CiphertextB64": "Encapsulation (Base64)",
         "mlkem768SharedB64": "Shared key (Base64)"
       },
-      "importNameLabel": "Key name (required)"
+      "importNameLabel": "Name"
     }
   },
   "text": {

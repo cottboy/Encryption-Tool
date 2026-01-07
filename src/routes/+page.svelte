@@ -523,7 +523,7 @@
           </select>
         </div>
         <div>
-          <div class="label">{$t("keys.ui.importNameLabel")}</div>
+          <div class="label">{$t("common.name")}</div>
           <input bind:value={importLabel} placeholder="" />
         </div>
       </div>
@@ -745,6 +745,13 @@
     width: 100%;
     box-sizing: border-box;
     resize: vertical;
+  }
+
+  /* 让“算法下拉框”和“名称输入框”在 grid2 中等宽展示（对齐两列视觉长度）。 */
+  .grid2 select,
+  .grid2 input {
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .danger {
