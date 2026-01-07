@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Encryption Tool",
-        "width": 800,
-        "height": 700
+        "width": 840,
+        "height": 810
       }
     ],
     "security": {
