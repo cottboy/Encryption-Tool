@@ -36,13 +36,13 @@
       "delete": "删除",
       "placeholders": {
         "symmetricB64": "请输入 Base64 编码的 32 字节密钥…",
-        "x25519PublicB64": "请输入 Base64 编码的 32 字节公钥…（可选）",
-        "x25519SecretB64": "请输入 Base64 编码的 32 字节私钥…（可选）",
+        "x25519PublicB64": "请输入 Base64 编码的 32 字节公钥…",
+        "x25519SecretB64": "请输入 Base64 编码的 32 字节私钥…",
         "mlkem768PublicB64": "请输入 ML-KEM-768 公钥（Base64）…",
         "mlkem768SecretB64": "请输入 ML-KEM-768 私钥（Base64）…",
         "mlkem768CtB64": "请输入/粘贴 封装密钥（Base64，实际为封装密文 ct）…",
-        "rsaPublicPem": "粘贴 RSA 公钥 PEM（可选）…",
-        "rsaPrivatePem": "粘贴 RSA 私钥 PEM（可选）…"
+        "rsaPublicPem": "粘贴 RSA 公钥 PEM…",
+        "rsaPrivatePem": "粘贴 RSA 私钥 PEM…"
       },
       "hints": {
       },

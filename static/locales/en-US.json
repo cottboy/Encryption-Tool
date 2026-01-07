@@ -39,10 +39,10 @@
         "mlkem768SecretB64": "Enter an ML-KEM-768 private key (Base64)",
         "mlkem768CtB64": "Enter/paste the encapsulation (Base64, ciphertext ct)",
         "symmetricB64": "Enter a Base64-encoded 32-byte key…",
-        "x25519PublicB64": "Enter a Base64-encoded 32-byte public key… (optional)",
-        "x25519SecretB64": "Enter a Base64-encoded 32-byte private key… (optional)",
-        "rsaPublicPem": "Paste RSA public key PEM (optional)…",
-        "rsaPrivatePem": "Paste RSA private key PEM (optional)…"
+        "x25519PublicB64": "Enter a Base64-encoded 32-byte public key…",
+        "x25519SecretB64": "Enter a Base64-encoded 32-byte private key…",
+        "rsaPublicPem": "Paste RSA public key PEM…",
+        "rsaPrivatePem": "Paste RSA private key PEM…"
       },
       "hints": {
       },
