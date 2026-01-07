@@ -48,8 +48,12 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
             label_key: "keys.ui.preview.secretB64",
             placeholder_key: Some("keys.ui.placeholders.x25519SecretB64"),
             rows: 4,
-            // 产品规则提示：放在“私钥输入框”下方，避免重复展示。
-            hint_key: Some("keys.ui.hints.x25519NeedFull"),
+            /*
+              需求调整：
+              - 用户要求：导入 X25519 时不再在输入框下方展示提示文案。
+              - 注意：这里只是移除“提示展示”，并不影响 X25519 加/解密必须“公钥+私钥都齐全”的业务校验（ensure_full 仍会严格检查）。
+            */
+            hint_key: None,
             required_for_encrypt: true,
             required_for_decrypt: true,
         },

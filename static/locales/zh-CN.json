@@ -41,7 +41,6 @@
         "rsaPrivatePem": "粘贴 RSA 私钥 PEM（可选）…"
       },
       "hints": {
-        "x25519NeedFull": "提示：X25519 需要同时包含公钥和私钥才能用于加密/解密。"
       },
       "materialSuffix": {
         "rsaPublicOnly": "仅公钥",

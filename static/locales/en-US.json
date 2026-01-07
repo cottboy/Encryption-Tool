@@ -41,7 +41,6 @@
         "rsaPrivatePem": "Paste RSA private key PEM (optional)…"
       },
       "hints": {
-        "x25519NeedFull": "Note: X25519 requires both public and private keys to encrypt/decrypt."
       },
       "materialSuffix": {
         "rsaPublicOnly": " (public only)",
