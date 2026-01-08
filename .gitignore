@@ -15,11 +15,16 @@ src-tauri/target/
 # Android 构建产物
 src-tauri/gen/android/.gradle/
 src-tauri/gen/android/build/
+src-tauri/gen/android/buildSrc/.gradle/
+src-tauri/gen/android/buildSrc/build/
 src-tauri/gen/android/app/build/
 src-tauri/gen/android/app/.cxx/
 src-tauri/gen/android/local.properties
 *.apk
 *.aab
+
+# Tauri schemas (自动生成)
+src-tauri/gen/schemas/
 
 .vscode/
 .kiro/
