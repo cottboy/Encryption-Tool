@@ -236,56 +236,10 @@
   // 工具函数：类型展示/二次确认/剪贴板复制
   // =====================
 
-  function typeSuffix(materialKind: string): string {
-    switch (materialKind) {
-      case "rsa_public_only":
-        return $t("keys.ui.materialSuffix.rsaPublicOnly");
-      case "rsa_private_only":
-        return $t("keys.ui.materialSuffix.rsaPrivateOnly");
-      case "rsa_full":
-        return $t("keys.ui.materialSuffix.rsaFull");
-      case "x25519_public_only":
-        return $t("keys.ui.materialSuffix.x25519PublicOnly");
-      case "x25519_secret_only":
-        return $t("keys.ui.materialSuffix.x25519SecretOnly");
-      case "x25519_full":
-        return $t("keys.ui.materialSuffix.x25519Full");
-      default:
-        return "";
-    }
-  }
-
-  function materialKindFromParts(keyType: string, partsPresent: string[]): string {
-    const has = (id: string) => partsPresent.includes(id);
-
-    // 对称：不需要区分“仅公钥/仅私钥/完整”。
-    if (keyType === "AES-256" || keyType === "ChaCha20") return "symmetric";
-
-    // RSA：公钥/私钥任意存在都允许存，但加/解密能力由其他页面/按钮控制。
-    if (keyType === "RSA-4096") {
-      const pub = has("rsa_public_pem");
-      const priv = has("rsa_private_pem");
-      if (pub && priv) return "rsa_full";
-      if (pub) return "rsa_public_only";
-      return "rsa_private_only";
-    }
-
-    // X25519：同样区分公钥/私钥/完整（产品规则：加/解密必须完整）。
-    if (keyType === "X25519") {
-      const pub = has("x25519_public_b64");
-      const sec = has("x25519_secret_b64");
-      if (pub && sec) return "x25519_full";
-      if (pub) return "x25519_public_only";
-      return "x25519_secret_only";
-    }
-
-    return "";
-  }
-
   function keyTypeDisplay(e: KeyEntryPublic): string {
-    const kind = materialKindFromParts(e.key_type, e.parts_present);
-    if (kind === "symmetric") return e.key_type;
-    return `${e.key_type}${typeSuffix(kind)}`;
+    // 按需求：密钥管理列表的“类型”列只展示算法名，不展示“完整/仅公钥/仅私钥”等后缀。
+    // 注意：加/解密对“必须具备哪些 parts”的前置校验仍由后端/业务规则控制，这里仅影响显示文案。
+    return e.key_type;
   }
 
   // =====================
