@@ -83,7 +83,7 @@ pub struct KeyEntry {
     /// 用户可读名称。
     pub label: String,
 
-    /// 密钥类型（例如 AES-256 / ChaCha20 / RSA-2048 / RSA-4096 / X25519）。
+    /// 密钥类型（例如 AES-256 / ChaCha20 / RSA-4096 / X25519 / ML-KEM-768）。
     pub key_type: String,
 
     /// 通用 parts：该密钥条目包含的所有材料零件。

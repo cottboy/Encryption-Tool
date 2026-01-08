@@ -262,7 +262,7 @@
     if (keyType === "AES-256" || keyType === "ChaCha20") return "symmetric";
 
     // RSA：公钥/私钥任意存在都允许存，但加/解密能力由其他页面/按钮控制。
-    if (keyType === "RSA-2048" || keyType === "RSA-4096") {
+    if (keyType === "RSA-4096") {
       const pub = has("rsa_public_pem");
       const priv = has("rsa_private_pem");
       if (pub && priv) return "rsa_full";
