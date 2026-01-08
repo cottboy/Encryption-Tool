@@ -29,8 +29,8 @@
         "decrypt": "加/解密都需要同时具备公钥+私钥（Base64，32字节）"
       },
       "ML-KEM-768": {
-        "encrypt": "需要先建立会话（共享密钥已保存到密钥库）；数据侧使用 AES-256-GCM",
-        "decrypt": "需要先建立会话（共享密钥已保存到密钥库）；数据侧使用 AES-256-GCM"
+        "encrypt": "需要封装密钥计算出共享密钥；数据侧使用 AES-256-GCM",
+        "decrypt": "需要封装密钥计算出共享密钥；数据侧使用 AES-256-GCM"
       }
     }
   },
@@ -105,7 +105,7 @@
         "rsaNeedPrivate": "RSA 解密需要私钥，请选择包含私钥的 RSA 密钥",
         "rsaNeedPublic": "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥",
         "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥",
-        "mlkemNeedSession": "ML-KEM-768 加密/解密需要先建立会话（共享密钥已保存到密钥库）"
+        "mlkemNeedSession": "ML-KEM-768 加密/解密需要封装密钥计算出共享密钥"
       }
     }
   },
@@ -123,7 +123,7 @@
         "rsaNeedPublic": "RSA 加密需要公钥，请选择包含公钥的 RSA 密钥",
         "rsaNeedPrivate": "RSA 解密需要私钥，请选择包含私钥的 RSA 密钥",
         "x25519NeedFull": "X25519 加密/解密需要同时包含公钥和私钥，请选择“完整”类型的 X25519 密钥",
-        "mlkemNeedSession": "ML-KEM-768 加密/解密需要先建立会话（共享密钥已保存到密钥库）"
+        "mlkemNeedSession": "ML-KEM-768 加密/解密需要封装密钥计算出共享密钥"
       },
       "msg": {
         "startedEncrypt": "已启动加密任务，输出：{path}",

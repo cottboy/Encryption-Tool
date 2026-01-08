@@ -29,8 +29,8 @@
         "decrypt": "Encryption/decryption requires both public and private keys (Base64, 32 bytes)"
       },
       "ML-KEM-768": {
-        "encrypt": "Requires an established session (shared key stored in keystore). Data-side uses AES-256-GCM.",
-        "decrypt": "Requires an established session (shared key stored in keystore). Data-side uses AES-256-GCM."
+        "encrypt": "Requires an encapsulation to derive the shared key. Data-side uses AES-256-GCM.",
+        "decrypt": "Requires an encapsulation to derive the shared key. Data-side uses AES-256-GCM."
       }
     }
   },
@@ -105,7 +105,7 @@
         "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA key that includes a private key.",
         "rsaNeedPublic": "RSA encryption requires a public key. Please select an RSA key that includes a public key.",
         "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key.",
-        "mlkemNeedSession": "ML-KEM-768 requires an established session (shared key stored in keystore)."
+        "mlkemNeedSession": "ML-KEM-768 requires an encapsulation to derive the shared key."
       }
     }
   },
@@ -123,7 +123,7 @@
         "rsaNeedPublic": "RSA encryption requires a public key. Please select an RSA key that includes a public key.",
         "rsaNeedPrivate": "RSA decryption requires a private key. Please select an RSA key that includes a private key.",
         "x25519NeedFull": "X25519 encryption/decryption requires both public and private keys. Please select a full X25519 key.",
-        "mlkemNeedSession": "ML-KEM-768 requires an established session (shared key stored in keystore)."
+        "mlkemNeedSession": "ML-KEM-768 requires an encapsulation to derive the shared key."
       },
       "msg": {
         "startedEncrypt": "Encryption started. Output: {path}",

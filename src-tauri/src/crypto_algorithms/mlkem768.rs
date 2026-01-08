@@ -137,7 +137,7 @@ fn parse_ct_b64(ct_b64: &str) -> Result<mlkem768::Ciphertext, String> {
 
 fn parse_shared(entry: &keystore::KeyEntry) -> Result<Zeroizing<[u8; 32]>, String> {
     let part = keystore::find_part(entry, PART_SHARED)
-        .ok_or_else(|| "尚未建立会话：请先生成/导入封装密钥并保存".to_string())?;
+        .ok_or_else(|| "ML-KEM-768 加密/解密需要封装密钥计算出共享密钥".to_string())?;
     if part.encoding != keystore::KeyPartEncoding::Base64 {
         return Err("mlkem768_shared_b64 的 encoding 必须为 base64".to_string());
     }

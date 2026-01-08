@@ -1059,7 +1059,7 @@ fn resolve_file_encrypt_key(
         "ML-KEM-768" => {
             // 会话密钥：由 ML-KEM-768 封装/解封建立（32 字节 Base64），这里直接作为数据侧 key 使用。
             let part = keystore::find_part(entry, "mlkem768_shared_b64").ok_or_else(|| {
-                "ML-KEM-768 尚未建立会话：请先生成/导入封装密钥并保存".to_string()
+                "ML-KEM-768 加密/解密需要封装密钥计算出共享密钥".to_string()
             })?;
             if part.encoding != keystore::KeyPartEncoding::Base64 {
                 return Err("mlkem768_shared_b64 的 encoding 必须为 base64".to_string());
@@ -1160,7 +1160,7 @@ fn resolve_file_decrypt_key(
         }
         "ML-KEM-768" => {
             let part = keystore::find_part(entry, "mlkem768_shared_b64").ok_or_else(|| {
-                "ML-KEM-768 尚未建立会话：请先生成/导入封装密钥并保存".to_string()
+                "ML-KEM-768 加密/解密需要封装密钥计算出共享密钥".to_string()
             })?;
             if part.encoding != keystore::KeyPartEncoding::Base64 {
                 return Err("mlkem768_shared_b64 的 encoding 必须为 base64".to_string());
