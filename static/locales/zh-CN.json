@@ -73,14 +73,6 @@
       },
       "hints": {
       },
-      "materialSuffix": {
-        "rsaPublicOnly": "仅公钥",
-        "rsaPrivateOnly": "仅私钥",
-        "rsaFull": "完整",
-        "x25519PublicOnly": "仅公钥",
-        "x25519SecretOnly": "仅私钥",
-        "x25519Full": "完整"
-      },
       "errors": {
         "nameRequired": "请输入密钥名称"
       },

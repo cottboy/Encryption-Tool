@@ -73,14 +73,6 @@
       },
       "hints": {
       },
-      "materialSuffix": {
-        "rsaPublicOnly": " (public only)",
-        "rsaPrivateOnly": " (private only)",
-        "rsaFull": " (full)",
-        "x25519PublicOnly": " (public only)",
-        "x25519SecretOnly": " (private only)",
-        "x25519Full": " (full)"
-      },
       "errors": {
         "nameRequired": "Please enter a key name"
       },

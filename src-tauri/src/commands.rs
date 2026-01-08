@@ -161,7 +161,6 @@ pub struct KeyEntryPublic {
     ///
     /// 用途：
     /// - 前端基于“算法声明的 required parts + parts_present”判断该密钥能否用于加密/解密；
-    /// - 同时可用于 UI 展示“仅公钥/仅私钥/完整”等状态（由前端按算法规则计算）。
     pub parts_present: Vec<String>,
 }
 /// 获取密钥库状态：
