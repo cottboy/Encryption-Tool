@@ -94,9 +94,7 @@ pub struct KeyEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "format", rename_all = "snake_case")]
 pub enum KeyStoreFile {
-    Plain {
-        data: KeyStorePlain,
-    },
+    Plain { data: KeyStorePlain },
 }
 
 /// 给前端展示的密钥库状态（不包含敏感材料）。
@@ -201,7 +199,9 @@ pub fn status(app: &AppHandle) -> Result<KeyStoreStatus, KeyStoreError> {
 /// 将密钥库写回磁盘（明文）。
 pub fn write_plain(app: &AppHandle, plain: &KeyStorePlain) -> Result<(), KeyStoreError> {
     let path = keystore_path(app)?;
-    let file = KeyStoreFile::Plain { data: plain.clone() };
+    let file = KeyStoreFile::Plain {
+        data: plain.clone(),
+    };
     write_json_atomic(&path, &file)
 }
 

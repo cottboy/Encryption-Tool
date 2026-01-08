@@ -28,7 +28,7 @@ pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
         hidden: false,
         label_key: "keys.ui.preview.symmetricKey",
         placeholder_key: Some("keys.ui.placeholders.symmetricB64"),
-        rows: 5,
+        rows: 4,
         hint_key: None,
         required_for_encrypt: true,
         required_for_decrypt: true,
