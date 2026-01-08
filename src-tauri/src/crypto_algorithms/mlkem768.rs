@@ -36,8 +36,8 @@ const PART_SHARED: &str = "mlkem768_shared_b64";
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     id: ALG_ID,
     category: AlgorithmCategory::Asymmetric,
-    encrypt_needs: "需要先建立会话（共享密钥已保存到密钥库）；数据侧使用 AES-256-GCM",
-    decrypt_needs: "需要先建立会话（共享密钥已保存到密钥库）；数据侧使用 AES-256-GCM",
+    encrypt_needs_key: "algorithms.needs.ML-KEM-768.encrypt",
+    decrypt_needs_key: "algorithms.needs.ML-KEM-768.decrypt",
     key_parts: &[
         KeyPartSpec {
             id: PART_PUBLIC,

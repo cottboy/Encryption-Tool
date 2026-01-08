@@ -20,8 +20,8 @@ use super::utils;
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     id: "ChaCha20",
     category: AlgorithmCategory::Symmetric,
-    encrypt_needs: "需要对称密钥（Base64，32字节）",
-    decrypt_needs: "需要对称密钥（Base64，32字节）",
+    encrypt_needs_key: "algorithms.needs.ChaCha20.encrypt",
+    decrypt_needs_key: "algorithms.needs.ChaCha20.decrypt",
     key_parts: &[KeyPartSpec {
         id: "symmetric_key_b64",
         encoding: keystore::KeyPartEncoding::Base64,

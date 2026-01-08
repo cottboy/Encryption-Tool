@@ -86,8 +86,8 @@ pub struct AlgorithmKeyPartSpec {
 pub struct AlgorithmFormSpec {
     pub id: &'static str,
     pub category: &'static str,
-    pub encrypt_needs: &'static str,
-    pub decrypt_needs: &'static str,
+    pub encrypt_needs_key: &'static str,
+    pub decrypt_needs_key: &'static str,
     pub key_parts: Vec<AlgorithmKeyPartSpec>,
 }
 
@@ -101,8 +101,8 @@ pub fn get_algorithm_form_specs() -> Vec<AlgorithmFormSpec> {
                 crate::crypto_algorithms::AlgorithmCategory::Symmetric => "symmetric",
                 crate::crypto_algorithms::AlgorithmCategory::Asymmetric => "asymmetric",
             },
-            encrypt_needs: spec.encrypt_needs,
-            decrypt_needs: spec.decrypt_needs,
+            encrypt_needs_key: spec.encrypt_needs_key,
+            decrypt_needs_key: spec.decrypt_needs_key,
             key_parts: spec
                 .key_parts
                 .iter()

@@ -1,10 +1,37 @@
 {
   "app": {
     "title": "Encryption Tool",
+    "a11y": {
+      "mainTabs": "Main tabs"
+    },
     "tabs": {
       "keys": "Key Management",
       "text": "Text Crypto",
       "files": "File Crypto"
+    }
+  },
+  "algorithms": {
+    "needs": {
+      "AES-256": {
+        "encrypt": "Requires a symmetric key (Base64, 32 bytes)",
+        "decrypt": "Requires a symmetric key (Base64, 32 bytes)"
+      },
+      "ChaCha20": {
+        "encrypt": "Requires a symmetric key (Base64, 32 bytes)",
+        "decrypt": "Requires a symmetric key (Base64, 32 bytes)"
+      },
+      "RSA-4096": {
+        "encrypt": "Encryption requires a public key (PEM); decryption requires a private key (PEM). Long text/files use hybrid encryption.",
+        "decrypt": "Decryption requires a private key (PEM)"
+      },
+      "X25519": {
+        "encrypt": "Encryption/decryption requires both public and private keys (Base64, 32 bytes). Text/files use hybrid encryption.",
+        "decrypt": "Encryption/decryption requires both public and private keys (Base64, 32 bytes)"
+      },
+      "ML-KEM-768": {
+        "encrypt": "Requires an established session (shared key stored in keystore). Data-side uses AES-256-GCM.",
+        "decrypt": "Requires an established session (shared key stored in keystore). Data-side uses AES-256-GCM."
+      }
     }
   },
   "common": {
@@ -65,8 +92,7 @@
         "symmetricKey": "Key (Base64)",
         "mlkem768CiphertextB64": "Encapsulation (Base64)",
         "mlkem768SharedB64": "Shared key (Base64)"
-      },
-      "importNameLabel": "Name"
+      }
     }
   },
   "text": {

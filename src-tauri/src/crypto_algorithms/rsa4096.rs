@@ -26,8 +26,8 @@ use crate::text_crypto::TextCipherPayload;
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     id: "RSA-4096",
     category: AlgorithmCategory::Asymmetric,
-    encrypt_needs: "加密需要公钥（PEM）；解密需要私钥（PEM）；长文本/文件走混合加密",
-    decrypt_needs: "解密需要私钥（PEM）",
+    encrypt_needs_key: "algorithms.needs.RSA-4096.encrypt",
+    decrypt_needs_key: "algorithms.needs.RSA-4096.decrypt",
     key_parts: &[
         KeyPartSpec {
             id: "rsa_public_pem",

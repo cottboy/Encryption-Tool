@@ -25,8 +25,8 @@ use super::utils;
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     id: "AES-256",
     category: AlgorithmCategory::Symmetric,
-    encrypt_needs: "需要对称密钥（Base64，32字节）",
-    decrypt_needs: "需要对称密钥（Base64，32字节）",
+    encrypt_needs_key: "algorithms.needs.AES-256.encrypt",
+    decrypt_needs_key: "algorithms.needs.AES-256.decrypt",
     key_parts: &[
         // 对称算法：只需要一段 32 字节密钥（Base64）。
         KeyPartSpec {

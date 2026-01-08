@@ -74,8 +74,8 @@
   type AlgorithmFormSpec = {
     id: string;
     category: "symmetric" | "asymmetric";
-    encrypt_needs: string;
-    decrypt_needs: string;
+    encrypt_needs_key: string;
+    decrypt_needs_key: string;
     key_parts: AlgorithmKeyPartSpec[];
   };
 

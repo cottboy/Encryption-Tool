@@ -1,10 +1,37 @@
 {
   "app": {
     "title": "Encryption Tool",
+    "a11y": {
+      "mainTabs": "主功能标签"
+    },
     "tabs": {
       "keys": "密钥管理",
       "text": "文本加密",
       "files": "文件加密"
+    }
+  },
+  "algorithms": {
+    "needs": {
+      "AES-256": {
+        "encrypt": "需要对称密钥（Base64，32字节）",
+        "decrypt": "需要对称密钥（Base64，32字节）"
+      },
+      "ChaCha20": {
+        "encrypt": "需要对称密钥（Base64，32字节）",
+        "decrypt": "需要对称密钥（Base64，32字节）"
+      },
+      "RSA-4096": {
+        "encrypt": "加密需要公钥（PEM）；解密需要私钥（PEM）；长文本/文件走混合加密",
+        "decrypt": "解密需要私钥（PEM）"
+      },
+      "X25519": {
+        "encrypt": "加/解密都需要同时具备公钥+私钥（Base64，32字节）；文本/文件走混合加密",
+        "decrypt": "加/解密都需要同时具备公钥+私钥（Base64，32字节）"
+      },
+      "ML-KEM-768": {
+        "encrypt": "需要先建立会话（共享密钥已保存到密钥库）；数据侧使用 AES-256-GCM",
+        "decrypt": "需要先建立会话（共享密钥已保存到密钥库）；数据侧使用 AES-256-GCM"
+      }
     }
   },
   "common": {
@@ -65,8 +92,7 @@
         "symmetricKey": "密钥（Base64）",
         "mlkem768CiphertextB64": "封装密钥（Base64）",
         "mlkem768SharedB64": "共享密钥（Base64）"
-      },
-      "importNameLabel": "名称"
+      }
     }
   },
   "text": {

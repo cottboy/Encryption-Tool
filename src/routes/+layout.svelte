@@ -24,6 +24,12 @@
     { path: "/files", labelKey: "app.tabs.files" }
   ] as const;
 
+  // 根据当前语言实时更新窗口标题（Tauri WebView 会读取 document.title）。
+  $effect(() => {
+    if (typeof document === "undefined") return;
+    document.title = $t("app.title");
+  });
+
   function isActive(pathname: string, tabPath: string): boolean {
     if (tabPath === "/") return pathname === "/";
     return pathname.startsWith(tabPath);
@@ -40,7 +46,7 @@
         - 已移除左上角“Encryption Tool”字样；
         - 已移除右上角语言切换，下方 i18n 会按系统语言自动选择。
       -->
-      <nav class="tabs" aria-label="主功能标签">
+      <nav class="tabs" aria-label={$t("app.a11y.mainTabs")}>
         {#each tabs as tab}
           <a
             class="tab {isActive($page.url.pathname, tab.path) ? 'active' : ''}"

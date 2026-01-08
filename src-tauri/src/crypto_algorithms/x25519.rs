@@ -29,8 +29,8 @@ use super::utils;
 pub(super) const SPEC: AlgorithmSpec = AlgorithmSpec {
     id: "X25519",
     category: AlgorithmCategory::Asymmetric,
-    encrypt_needs: "加/解密都需要同时具备公钥+私钥（Base64，32字节）；文本/文件走混合加密",
-    decrypt_needs: "加/解密都需要同时具备公钥+私钥（Base64，32字节）",
+    encrypt_needs_key: "algorithms.needs.X25519.encrypt",
+    decrypt_needs_key: "algorithms.needs.X25519.decrypt",
     key_parts: &[
         KeyPartSpec {
             id: "x25519_public_b64",

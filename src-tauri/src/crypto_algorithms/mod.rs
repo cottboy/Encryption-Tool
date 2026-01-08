@@ -75,10 +75,10 @@ pub struct AlgorithmSpec {
     pub id: &'static str,
     /// 分类（用于 UI 分组）。
     pub category: AlgorithmCategory,
-    /// 加密所需的密钥材料说明（给 UI/业务做预判用）。
-    pub encrypt_needs: &'static str,
-    /// 解密所需的密钥材料说明（给 UI/业务做预判用）。
-    pub decrypt_needs: &'static str,
+    /// 加密所需的密钥材料说明（i18n key，给 UI/业务做预判用）。
+    pub encrypt_needs_key: &'static str,
+    /// 解密所需的密钥材料说明（i18n key，给 UI/业务做预判用）。
+    pub decrypt_needs_key: &'static str,
     /// 密钥零件声明：用于“按声明动态生成输入表单”。
     pub key_parts: &'static [KeyPartSpec],
     /// 将前端提交的 parts 做“算法级规范化/校验”，并返回可落盘的 parts。
