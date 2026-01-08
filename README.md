@@ -1,26 +1,25 @@
 # Encryption Tool
 
-跨平台图形化加密工具（Windows / macOS / Linux）。
+图形化加密工具
 
-## 目标（当前阶段）
+## 功能
 
-- 三标签页 UI：密钥管理 / 文本加密 / 文件加密
-- i18n 翻译文件接口：`static/locales/*.json`
-- 加密逻辑全部放在 Rust 后端（Tauri 命令），前端只负责交互与展示
+- 密钥管理
+- 文本加密
+- 文件加密
 
-## 开发运行
+## 支持算法
 
-在 `encryption-tool/` 目录下：
+| 类型 | 算法 |
+|------|------|
+| 对称加密 | AES-256、ChaCha20 |
+| 非对称加密 | RSA-4096、X25519 |
+| 后量子加密 | ML-KEM-768 |
 
-```bash
-npm install
-npm run tauri dev
-```
+## 截图
 
-## 自检
+![截图1](https://img.meituan.net/content/5ccc479d0f30283486addbfe0fd556778527.png)
 
-```bash
-npm run check
-npm run build
-cd src-tauri && cargo check
-```
+![截图2](https://img.meituan.net/content/2aa6308d1199df2315104d91d70b70529394.png)
+
+![截图3](https://img.meituan.net/content/cab07d29f7120b904d51a4961150c4089751.png)
