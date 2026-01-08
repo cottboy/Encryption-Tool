@@ -1,10 +1,4 @@
-﻿需求文档.md
-任务计划.md
-架构设计.md
-UI设计稿.md
-安全评审.md
-
-*.encrypted
+﻿*.encrypted
 *.log
 
 node_modules/
@@ -17,6 +11,15 @@ build/
 
 target/
 src-tauri/target/
+
+# Android 构建产物
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/build/
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/app/.cxx/
+src-tauri/gen/android/local.properties
+*.apk
+*.aab
 
 .vscode/
 .kiro/
