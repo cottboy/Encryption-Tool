@@ -360,10 +360,6 @@
   </div>
 </div>
 
-{#if message}
-  <div class="help" style="margin-top: 10px; color: #0b4db8">{message}</div>
-{/if}
-
 <div class="io" style="margin-top: 12px">
   <div class="label">{$t("common.input")}</div>
   <textarea bind:value={inputText} rows="8" placeholder={$t("text.ui.placeholders.input")} disabled={busy}></textarea>
@@ -373,6 +369,10 @@
   <div class="label">{$t("common.output")}</div>
   <textarea bind:value={outputText} rows="8" placeholder={$t("text.ui.placeholders.output")} readonly></textarea>
 </div>
+
+{#if message}
+  <div class="help" style="margin-top: 10px; color: #0b4db8">{message}</div>
+{/if}
 
 <style>
   .label {
