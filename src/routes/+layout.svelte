@@ -24,10 +24,25 @@
     { path: "/files", labelKey: "app.tabs.files" }
   ] as const;
 
-  // 根据当前语言实时更新窗口标题（Tauri WebView 会读取 document.title）。
+  // 根据当前语言实时更新窗口标题：
+  // - Web: 更新 document.title
+  // - Tauri: 同步调用 Window API，确保任务栏/窗口标题也更新
   $effect(() => {
-    if (typeof document === "undefined") return;
-    document.title = $t("app.title");
+    const title = $t("app.title");
+    if (!title || title === "app.title") return;
+
+    if (typeof document !== "undefined") {
+      document.title = title;
+    }
+
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().setTitle(title);
+      } catch {
+        // 非 Tauri 环境或 API 不可用时忽略
+      }
+    })();
   });
 
   function isActive(pathname: string, tabPath: string): boolean {
