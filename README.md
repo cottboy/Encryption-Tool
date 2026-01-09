@@ -18,8 +18,4 @@
 
 ## 截图
 
-![截图1](https://img.meituan.net/content/5ccc479d0f30283486addbfe0fd556778527.png)
-
-![截图2](https://img.meituan.net/content/2aa6308d1199df2315104d91d70b70529394.png)
-
-![截图3](https://img.meituan.net/content/cab07d29f7120b904d51a4961150c4089751.png)
+![截图](https://free.picui.cn/free/2026/01/09/6960bc9c9ff8a.png)
