@@ -16,7 +16,8 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
-        val executable = """npm""";
+        // Windows 下直接使用 npm.cmd，避免找不到可执行文件
+        val executable = if (Os.isFamily(Os.FAMILY_WINDOWS)) "npm.cmd" else "npm"
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
