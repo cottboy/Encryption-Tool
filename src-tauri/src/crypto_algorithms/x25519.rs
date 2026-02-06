@@ -157,22 +157,6 @@ fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPar
         None
     };
 
-    // 若两者都提供：校验公钥必须与私钥匹配（不做自动修复/推导）。
-    if let (Some(secret_b64), Some(public_b64)) = (&secret_norm, &public_norm) {
-        let secret_vec = B64
-            .decode(secret_b64.as_bytes())
-            .map_err(|e| format!("X25519 私钥 Base64 解码失败：{e}"))?;
-        let secret_bytes: [u8; 32] = secret_vec
-            .as_slice()
-            .try_into()
-            .map_err(|_| "X25519 私钥长度不正确".to_string())?;
-        let derived_public = X25519PublicKey::from(&X25519StaticSecret::from(secret_bytes));
-        let derived_b64 = B64.encode(derived_public.as_bytes());
-        if derived_b64 != public_b64.as_str() {
-            return Err("X25519 公钥与私钥不匹配".to_string());
-        }
-    }
-
     let mut out = Vec::new();
     if let Some(public_b64) = public_norm {
         out.push(keystore::KeyPart {
