@@ -84,11 +84,13 @@
 <style>
   .app {
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
   }
 
   .topbar {
+    padding-top: var(--safe-area-top);
     background: rgba(255, 255, 255, 0.75);
     backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
@@ -148,7 +150,7 @@
   }
 
   .main {
-    padding: 16px 0;
+    padding: 16px 0 calc(16px + var(--safe-area-bottom));
     flex: 1;
 
     /*
