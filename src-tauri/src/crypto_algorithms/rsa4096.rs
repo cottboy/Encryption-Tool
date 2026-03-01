@@ -236,7 +236,7 @@ pub fn file_encrypt_prepare(
 /// 支持的输入：
 /// - 仅公钥：rsa_public_pem
 /// - 仅私钥：rsa_private_pem
-/// - 公钥 + 私钥：两者都填（会校验匹配）
+/// - 公钥 + 私钥：两者都填
 fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPart>, String> {
     let mut map = super::utils::collect_parts_unique(parts)?;
 
@@ -305,14 +305,6 @@ fn normalize_parts(parts: Vec<keystore::KeyPart>) -> Result<Vec<keystore::KeyPar
     } else {
         None
     };
-
-    // 若同时提供公钥+私钥：必须匹配。
-    if let (Some((priv_key, _)), Some((pub_key, _))) = (&private_norm, &public_norm) {
-        let derived = RsaPublicKey::from(priv_key);
-        if derived.n() != pub_key.n() || derived.e() != pub_key.e() {
-            return Err("RSA 公钥与私钥不匹配".to_string());
-        }
-    }
 
     let mut out = Vec::new();
     if let Some((_, public_pem)) = public_norm {
