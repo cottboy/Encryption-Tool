@@ -1,11 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.encryption_tool" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/system_bar_bg</item>
-        <item name="colorPrimaryVariant">@color/system_bar_bg</item>
+        <item name="colorPrimary">@color/system_status_bar_bg</item>
+        <item name="colorPrimaryVariant">@color/system_status_bar_bg</item>
         <item name="colorOnPrimary">@color/black</item>
-        <item name="android:statusBarColor">@color/system_bar_bg</item>
-        <item name="android:navigationBarColor">@color/system_bar_bg</item>
+        <item name="android:statusBarColor">@color/system_status_bar_bg</item>
+        <item name="android:navigationBarColor">@color/system_nav_bar_bg</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
